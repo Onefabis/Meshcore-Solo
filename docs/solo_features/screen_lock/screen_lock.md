@@ -16,7 +16,8 @@ Screen lock prevents accidental keypresses. While locked the display turns off a
 
 **Hold Back** and press **Enter** three times within 3 seconds. The sequence works in both directions — the same combination locks and unlocks.
 
-On boards with a CardKB attached, **Fn+Esc** does the same thing in one press. Esc rather than the adjacent Backspace — those two keys sit next to each other on CardKB's layout and would be too easy to hit by accident.
+On boards with a CardKB attached, **Fn+Esc** does the same thing in one press.
+`Fn`, then `Backspace` is reserved for switching the active typing script.
 
 If the display is off when the sequence begins, it turns on automatically so the hint is visible. Each press in the physical sequence extends the display-on timer by 5 seconds.
 

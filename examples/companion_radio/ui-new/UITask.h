@@ -253,6 +253,14 @@ private:
   // the last raw byte seen so a held key enqueues exactly one press instead
   // of one per poll tick.
   uint8_t  _cardkb_last_raw = 0;
+  // Some CardKB firmware exposes Fn as a separate state: it is reported first,
+  // then the following key is returned as an ordinary key code. Keep that
+  // state briefly so Fn followed by Backspace can switch the typing script.
+  static const uint32_t CARDKB_FN_SEQUENCE_TIMEOUT_MS = 700;
+  bool     _cardkb_fn_pending = false;
+  uint32_t _cardkb_fn_pending_since = 0;
+  void toggleCardKBLock();
+  void toggleCardKBScript();
 #endif
   void pollCardKB();
 

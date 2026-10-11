@@ -2450,17 +2450,43 @@ static const char CARDKB_FN_BASE[48] = {
 // Tab already covered every case Fn+Tab did, just not while the keyboard was
 // showing, so the carve-out was dropped instead of the shortcut. In Compact
 // mode's plain grid state Tab means something more useful instead (opens the
-// placeholder picker directly -- see below). Fn still gives two other clean,
+// placeholder picker directly -- see below). Fn also gives three clean,
 // stateless modifiers:
 //  - Fn+Enter (0xA3) submits the field (KEY_KB_ENTER) without needing to
 //    navigate to the special row's DONE cell. The placeholder/accent popups
 //    are modal and consume it first (dismiss them with Enter/Esc), same as
 //    they consume every other key.
+//  - Fn then Backspace (or the combined 0x8B code on other CardKB firmware)
+//    toggles the external CardKB script between the Settings > Keyboard Main
+//    and Additional alphabets.
 //  - Fn+<letter> opens the accent popup for that base letter directly
 //    (KeyboardWidget::openAccentFor()) -- no arrow-hunting across the grid.
 // CardKB is level-triggered (it keeps returning the held key's byte, not just
 // once), so _cardkb_last_raw debounces it into one press per physical
 // keypress, same as a MomentaryButton's CLICK event.
+void UITask::toggleCardKBLock() {
+  if (_display && !_display->isOn()) _display->turnOn();
+  _locked = !_locked;
+  if (_locked) {
+    _lock_wake_until = millis() + 2000;
+  } else {
+    uint32_t aoff = autoOffMillis();
+    if (aoff > 0) _auto_off = millis() + aoff;
+  }
+  syncLockToHome();
+  _next_refresh = 0;
+}
+
+void UITask::toggleCardKBScript() {
+  if (_kb.toggleExternalScript()) {
+    char alert[32];
+    snprintf(alert, sizeof(alert), "Language: %s", _kb.externalScriptLabel());
+    showAlert(alert, 900);
+  } else {
+    showAlert("Set Additional language", 1200);
+  }
+}
+
 void UITask::pollCardKB() {
 #if defined(CARDKB_I2C)
   if (!_has_cardkb) return;
@@ -2476,6 +2502,11 @@ void UITask::pollCardKB() {
   CARDKB_I2C.requestFrom(0x5F, 1);
   if (!CARDKB_I2C.available()) return;
   uint8_t raw = CARDKB_I2C.read();
+  if (_cardkb_fn_pending && millis() - _cardkb_fn_pending_since > CARDKB_FN_SEQUENCE_TIMEOUT_MS) {
+    _cardkb_fn_pending = false;
+    toggleCardKBLock();
+    return;
+  }
   if (raw == _cardkb_last_raw) return;   // still held (or still released) -- no new edge
   _cardkb_last_raw = raw;
   if (raw == 0) return;   // key just released, nothing to enqueue
@@ -2497,6 +2528,21 @@ void UITask::pollCardKB() {
   char key;
   if (raw == 0xA3) {          // Fn+Enter -- submit the field
     key = KEY_KB_ENTER;
+  } else if (raw == 0x8B) {   // combined Fn+Backspace on some CardKB firmware
+    char woke = checkDisplayOn((char)raw);
+    if (woke && !_locked && _kb.inPlainGridState()) {
+      toggleCardKBScript();
+    }
+    return;
+  } else if (raw == 0x80) {   // Fn state or Fn+Esc, depending on CardKB firmware
+    _cardkb_fn_pending = true;
+    _cardkb_fn_pending_since = millis();
+    return;
+  } else if (_cardkb_fn_pending && raw == 0x08) { // sequential Fn, then Backspace
+    _cardkb_fn_pending = false;
+    char woke = checkDisplayOn((char)raw);
+    if (woke && !_locked && _kb.inPlainGridState()) toggleCardKBScript();
+    return;
   } else if (compact_grid && (raw == (uint8_t)KEY_LEFT || raw == (uint8_t)KEY_UP ||
                               raw == (uint8_t)KEY_DOWN || raw == (uint8_t)KEY_RIGHT)) {
     char woke = checkDisplayOn((char)raw);   // already sets _next_refresh=0 when the display was on
@@ -2509,28 +2555,6 @@ void UITask::pollCardKB() {
       return;
     }
     key = KEY_CONTEXT_MENU;
-  } else if (raw == 0x80) {
-    // Fn+Esc -- CardKB's lock/unlock gesture: a single press toggles _locked
-    // directly (unlike the physical Hold-Back+3xEnter combo's 3-press
-    // sequence), so it works to unlock a locked device too, where every
-    // other CardKB key is correctly discarded (see the Fn+<letter> branch
-    // below). Esc, not the adjacent Fn+Backspace, on purpose: Fn and
-    // Backspace sit right next to each other on CardKB's layout, making that
-    // combo too easy to hit by accident; Esc is on the opposite side of the
-    // keyboard. One press is enough -- Fn+Esc is already a deliberate
-    // two-key combo, so it doesn't need the physical combo's extra 3x
-    // repetition to guard against accidental triggering.
-    if (_display && !_display->isOn()) _display->turnOn();
-    _locked = !_locked;
-    if (_locked) {
-      _lock_wake_until = millis() + 2000;
-    } else {
-      uint32_t aoff = autoOffMillis();
-      if (aoff > 0) _auto_off = millis() + aoff;
-    }
-    syncLockToHome();
-    _next_refresh = 0;
-    return;
   } else if (raw >= 0x80 && raw <= 0xAF) {   // Fn+<letter> -- open its accent popup
     char base = CARDKB_FN_BASE[raw - 0x80];
     if (base == 0) return;   // Fn+digit/symbol/arrow -- not used by this UI

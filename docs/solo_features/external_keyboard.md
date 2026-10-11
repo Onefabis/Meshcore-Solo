@@ -45,8 +45,12 @@ as a build flag rather than `ENV_PIN_SDA`/`ENV_PIN_SCL`. See
 
 Printable characters insert straight at the cursor, bypassing the on-screen grid
 completely. The alphabet and T9/ABC settings do not apply — a real keyboard sends
-the right character already, so typing is always plain Latin ASCII regardless of
-what Settings › Keyboard is set to.
+the right physical key already. Press `Fn`, release it, then press
+`Backspace` to switch the external layout between the two scripts selected in
+Settings › Keyboard › Main/Additional;
+ordinary Latin keys are then translated using the standard Cyrillic or Greek
+QWERTY layout. With Main and Additional set to the same script, the shortcut
+has no effect.
 
 | Key | Action |
 | --- | ------ |
@@ -56,14 +60,14 @@ what Settings › Keyboard is set to.
 | Arrows | same as the joystick |
 | Enter | same as the centre button |
 | **Fn+Enter** | **submit the field** — no need to find the DONE cell |
+| **Fn**, then **Backspace** | switch between the Main and Additional typing scripts |
 | **Fn+letter** | open the accent popup for that letter (e.g. Fn+A → á à ä ã…) |
 | **Tab** | the Hold-Enter equivalent, everywhere — context menus, shift-lock, clear-all |
 | **Fn+Esc** | lock / unlock the device (single press, works in both directions) |
 
-Fn+Esc rather than the adjacent Fn+Backspace on purpose: Fn and Backspace sit
-next to each other on CardKB's layout and would be far too easy to hit by
-accident. See [Screen Lock](./screen_lock/screen_lock.md) for the physical
-button equivalent.
+`Fn+Esc` remains the lock/unlock gesture. If the CardKB reports combined Fn
+codes, `0x8B` is accepted as an equivalent language-switch shortcut. See
+[Screen Lock](./screen_lock/screen_lock.md) for the physical button equivalent.
 
 ### Ext. KB — Full vs Compact
 

@@ -251,6 +251,40 @@ Contributions are welcome. Fork the repository, make your changes, and open a pu
 
 ---
 
+## Hardware setup — ProMicro + Faketec V5 ST7789V2
+
+The `ProMicro_companion_solo_st7789v` environment supports a Faketec V5 board
+with a 280 × 240 ST7789V2 panel. The display uses SPI1; connect the panel as
+follows:
+
+| ST7789V2 signal | ProMicro pin | nRF52840 GPIO | Notes |
+| --------------- | :----------: | :-----------: | ----- |
+| SCL / SCK       | **D5**        | **P0.24**     | SPI1 clock |
+| SDA / MOSI      | **D0**        | **P0.08**     | SPI1 data |
+| MISO            | **D17**       | **P0.31**     | Usually unused by the write-only panel |
+| CS              | **D1**        | **P0.06**     | Chip select |
+| DC / A0         | **D9**        | **P1.06**     | Data/command select |
+| RES             | **D3**        | **P0.20**     | Panel reset |
+| BL / LED        | **D4**        | **P0.22**     | PWM-controlled backlight |
+| VCC             | **3.3 V**     |              | Check the panel's own voltage requirements |
+| GND             | **GND**       |              | Common ground |
+
+The optional M5Stack CardKB connects to the ProMicro's shared primary I2C bus:
+
+| CardKB signal | ProMicro pin | nRF52840 GPIO |
+| ------------- | :----------: | :-----------: |
+| SDA           | **D8**        | **P1.04**     |
+| SCL           | **D7**        | **P0.11**     |
+| VCC / GND     | **3.3 V / GND** |             |
+
+CardKB is detected automatically. In Settings › Keyboard, choose the **Main**
+and **Additional** typing languages. While entering text with CardKB, press
+**Fn**, release it, then press **Backspace** to switch between them. For
+example, select Cyrillic as **Additional** to toggle from the main layout to a
+Cyrillic layout and back.
+
+---
+
 ## Contributors
 
 Big thanks to the people who contributed to this fork:

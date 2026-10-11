@@ -175,6 +175,45 @@ static void kbApplyCapsUtf8(const char* in, bool caps, char* out, size_t out_siz
   out[o] = '\0';
 }
 
+// CardKB has Latin QWERTY keycaps, so an alternate script needs a layout
+// mapping before the received ASCII character can be inserted.  The Cyrillic
+// table follows the standard Russian ЙЦУКЕН layout.  The Greek table follows
+// the standard Greek keyboard layout; punctuation that has no letter mapping
+// remains unchanged.
+static const char* const KB_CARDKB_CYRILLIC_KEYS = "`qwertyuiop[]asdfghjkl;'zxcvbnm,./";
+static const char* const KB_CARDKB_CYRILLIC_VALUES[] = {
+  "ё", "й", "ц", "у", "к", "е", "н", "г", "ш", "щ", "з", "х", "ъ",
+  "ф", "ы", "в", "а", "п", "р", "о", "л", "д", "ж", "э", "я", "ч",
+  "с", "м", "и", "т", "ь", "б", "ю", "."
+};
+static const char* const KB_CARDKB_GREEK_KEYS = "`qwertyuiop[]asdfghjkl;'zxcvbnm,./";
+static const char* const KB_CARDKB_GREEK_VALUES[] = {
+  "`", ";", "ς", "ε", "ρ", "τ", "υ", "θ", "ι", "ο", "π", "[", "]",
+  "α", "σ", "δ", "φ", "γ", "η", "ξ", "κ", "λ", ";", "'", "ζ", "χ",
+  "ψ", "ω", "β", "ν", "μ", ",", ".", "/"
+};
+
+static const char* kbCardkbMappedGlyph(uint8_t script, char c) {
+  const char* keys = nullptr;
+  const char* const* values = nullptr;
+  switch (script) {
+    case NodePrefs::KB_ALPHABET_CYRILLIC:
+      keys = KB_CARDKB_CYRILLIC_KEYS;
+      values = KB_CARDKB_CYRILLIC_VALUES;
+      break;
+    case NodePrefs::KB_ALPHABET_GREEK:
+      keys = KB_CARDKB_GREEK_KEYS;
+      values = KB_CARDKB_GREEK_VALUES;
+      break;
+    default:
+      return nullptr;
+  }
+  for (size_t i = 0; keys[i] != '\0'; i++) {
+    if (keys[i] == c) return values[i];
+  }
+  return nullptr;
+}
+
 // Codepoint count of a UTF-8 string (byte length overcounts once a 2-byte
 // alphabet is involved — this is what T9 cycling needs instead of strlen()).
 static int kbUtf8Len(const char* s) {
@@ -324,6 +363,9 @@ struct KeyboardWidget {
   // that construct a KeyboardWidget standalone, in which case isT9() defaults
   // to ABC and mainScript()/altScript() default to Latin-only.
   NodePrefs* prefs = nullptr;
+  // External CardKB input starts in Main and toggles between Main/Additional
+  // with Fn+Backspace.  This is independent of the on-screen grid page.
+  uint8_t external_script = NodePrefs::KB_ALPHABET_LATIN_ONLY;
   bool isT9() const { return prefs && prefs->keyboard_type == 1; }
   // Which script occupies page 0 (the keyboard's default/opening page) and
   // which occupies page 1 (reached by the #@/abc cycle key) -- Settings >
@@ -333,6 +375,20 @@ struct KeyboardWidget {
   uint8_t mainScript() const { return prefs ? prefs->keyboard_main_alphabet : NodePrefs::KB_ALPHABET_LATIN_ONLY; }
   uint8_t altScript()  const { return prefs ? prefs->keyboard_alt_alphabet  : NodePrefs::KB_ALPHABET_LATIN_ONLY; }
   bool hasAltAlphabet() const { return altScript() != mainScript(); }
+  uint8_t externalScript() const { return external_script; }
+  const char* externalScriptLabel() const { return NodePrefs::keyboardAlphabetLabel(external_script); }
+  void resetExternalScript() { external_script = mainScript(); }
+  bool toggleExternalScript() {
+    uint8_t main = mainScript();
+    uint8_t alt = altScript();
+    if (main == alt) {
+      external_script = main;
+      return false;
+    }
+    if (external_script != main && external_script != alt) external_script = main;
+    else external_script = (external_script == main) ? alt : main;
+    return true;
+  }
 
   // T9 multi-tap state: which grid cell is mid-cycle (-1 = none), its cycle
   // position, and when the last Enter landed on it (for the timeout).
@@ -426,6 +482,7 @@ struct KeyboardWidget {
     page = 0;
     caps = false;
     caps_lock = false;
+    resetExternalScript();
     t9_cell = -1;
     t9_cycle = 0;
     _ph_menu.active = false;
@@ -460,22 +517,21 @@ struct KeyboardWidget {
   // similar), as opposed to committed off the on-screen grid. The source
   // already sends the correct case, so no Shift/caps-lock is re-applied.
   //
-  // This is the single translation point for external-keyboard input: today
-  // it's the identity mapping (CardKB is a Latin QWERTY, so what it sends is
-  // what gets typed, regardless of the on-screen grid's script/T9 settings --
-  // those only govern grid navigation). To support relabelled keycaps
-  // (Cyrillic/Greek/...) later, map `c` to that layout's codepoint here and
-  // hand the resulting UTF-8 to insertGlyph() -- everything downstream already
-  // works in codepoints, not bytes. Such a layout belongs on its own setting,
-  // not on keyboard_main_alphabet: it describes the physical keycaps, which
-  // are independent of what the on-screen grid shows. Digits/punctuation
-  // should keep passing through unmapped, and Fn+letter accents
-  // (openAccentFor()) stay Latin-only -- they're meaningless under non-Latin
-  // keycaps.
+  // This is the single translation point for external-keyboard input.  The
+  // selected CardKB script maps the physical Latin QWERTY key to its standard
+  // Cyrillic/Greek counterpart; digits and punctuation pass through.  Shift
+  // from the physical keyboard is preserved by applying case to the mapped
+  // Unicode codepoint rather than re-applying the widget's one-shot caps.
   void insertTyped(char c) {
     t9_cell = -1;   // otherwise a same-cell T9 tap within KB_T9_TIMEOUT_MS would
-                    // overwrite this character instead of inserting a new one
-    char one[2] = { c, '\0' };
+                     // overwrite this character instead of inserting a new one
+    char one[5] = { c, '\0', '\0', '\0', '\0' };
+    if (external_script != NodePrefs::KB_ALPHABET_LATIN_ONLY) {
+      bool upper = c >= 'A' && c <= 'Z';
+      char lower = upper ? (char)(c + ('a' - 'A')) : c;
+      const char* mapped = kbCardkbMappedGlyph(external_script, lower);
+      if (mapped) kbApplyCapsUtf8(mapped, upper, one, sizeof(one));
+    }
     insertGlyph(one, false);
   }
 
@@ -630,21 +686,15 @@ struct KeyboardWidget {
 
     // Compact mode (Settings > Keyboard's "Ext. KB" row): an external-keyboard
     // typist never looks at the letter grid or special-row icons, so skip
-    // drawing them entirely -- no status line either, since nothing it could
-    // show (script/page, T9-vs-ABC, caps) is actually actionable from CardKB:
-    // typing is always plain Latin ASCII regardless of Main/Additional
-    // alphabet or keyboard_type (direct-typing passthrough, see
-    // UITask::pollCardKB()), Fn+letter's accent popup now works the same way
-    // regardless of them too (see openAccentFor()), and caps-lock has no
-    // CardKB gesture to toggle it at all. Just the two shortcuts that still do
-    // something here (arrows/Enter are self-explanatory -- cursor movement and
-    // submit -- so they get no hint of their own). Physical buttons (if used
-    // instead of/alongside CardKB) still drive row/col/page as normal; it
-    // just won't be visible on this screen which cell is selected.
+    // drawing them entirely. CardKB still has actionable language and accent
+    // shortcuts, while arrows/Enter remain self-explanatory (cursor movement
+    // and submit). Physical buttons (if used instead of/alongside CardKB) still
+    // drive row/col/page as normal; it just won't be visible which cell is
+    // selected.
     if (compact_ui) {
       display.setColor(DisplayDriver::LIGHT);
       display.drawTextCentered(display.width() / 2, chars_y, "Tab: placeholders");
-      display.drawTextCentered(display.width() / 2, chars_y + lh, "Fn+letter: accent");
+      display.drawTextCentered(display.width() / 2, chars_y + lh, "Fn+Back: language");
     } else {
       // character grid
       if (isT9()) {
@@ -780,15 +830,13 @@ struct KeyboardWidget {
   // CardKB's Fn+letter ("alt") gesture, see UITask::pollCardKB(): open the
   // accent popup for this base Latin letter directly, skipping the
   // arrow-hunt to find its cell first. `base` always comes from CardKB's own
-  // physical QWERTY layout -- CardKB is a Latin keyboard, so it always types
-  // plain ASCII regardless of the on-screen grid's current page/script/T9
-  // setting (those only govern what the *grid* shows for physical-button
-  // navigation, a completely separate input path with its own copy of this
-  // same gate at the Hold-Enter-on-a-letter-cell site in handleInput()).
+  // physical QWERTY layout, regardless of the currently selected external
+  // script. The shortcut remains Latin-only because the accent table is a
+  // Latin diacritic picker, while ordinary CardKB letters are translated by
+  // insertTyped() according to external_script.
   // Gating this one on the grid's page/script/T9 state would make Fn+letter
   // silently stop working whenever Main alphabet is set to Cyrillic/Greek or
-  // keyboard_type to T9, even though CardKB is still typing plain Latin text
-  // just fine -- so this only checks that no other exclusive input mode
+  // keyboard_type to T9, so this only checks that no other exclusive input mode
   // (popup/cursor-move) is already in progress, same as inPlainGridState().
   bool openAccentFor(char base) {
     if (!isVisible() || _ph_menu.active || cursor_mode || accent_active) return false;
