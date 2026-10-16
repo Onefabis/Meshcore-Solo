@@ -8,6 +8,7 @@
 // the index for a list, one of the stored values for a table (seconds, mV ...).
 
 #include "SettingsSchema.h"
+#include "helpers/TxtDataHelpers.h"
 
 namespace settingscli {
 
@@ -66,7 +67,7 @@ static bool parse(const NodePrefs& p, const settings::Setting& st, const char* v
     if (sameText(v, buf)) { index = i; return true; }
   }
   char* end;
-  double d = strtod(v, &end);
+  double d = StrHelper::parseDouble(v, &end);
   if (end == v || *end) return false;
   if (!st.values) {   // a list: its index
     if (d < 0 || d >= st.count || d != (int)d) return false;

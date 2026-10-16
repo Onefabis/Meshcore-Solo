@@ -6,6 +6,7 @@
 #include <time.h>
 #include "Persist.h"
 #include "GeoUtils.h"
+#include "ui-core/FixedFormat.h"
 
 // RAM-only GPS trail ring buffer.
 // Storage cost: CAPACITY(512) × sizeof(TrailPoint)(16 B, padded) = 8 KB,
@@ -374,9 +375,8 @@ public:
       }
       esc[e] = '\0';
       char buf[160];
-      int len = snprintf(buf, sizeof(buf),
-        "<wpt lat=\"%.6f\" lon=\"%.6f\"><name>%s</name>",
-        w.lat_1e6 / 1.0e6, w.lon_1e6 / 1.0e6, esc);
+      char lat[20], lon[20]; fixedfmt::formatE6(lat, sizeof(lat), w.lat_1e6, 6); fixedfmt::formatE6(lon, sizeof(lon), w.lon_1e6, 6);
+      int len = snprintf(buf, sizeof(buf), "<wpt lat=\"%s\" lon=\"%s\"><name>%s</name>", lat, lon, esc);
       if (len > 0) {
         if ((size_t)len >= sizeof(buf)) len = sizeof(buf) - 1;  // truncated: emit chars only, not the NUL
         n += out.write((const uint8_t*)buf, (size_t)len);
@@ -422,9 +422,8 @@ public:
     struct tm* gt = ::gmtime(&t);
     if (!gt) return n;  // defensive: skip malformed timestamps
     if (p.alt_m != TRAIL_ALT_NONE) snprintf(ele, sizeof(ele), "<ele>%d</ele>", (int)p.alt_m);
-    int len = snprintf(buf, sizeof(buf),
-      "<trkpt lat=\"%.6f\" lon=\"%.6f\">%s<time>%04d-%02d-%02dT%02d:%02d:%02dZ</time></trkpt>\n",
-      p.lat_1e6 / 1.0e6, p.lon_1e6 / 1.0e6, ele,
+    char lat[20], lon[20]; fixedfmt::formatE6(lat, sizeof(lat), p.lat_1e6, 6); fixedfmt::formatE6(lon, sizeof(lon), p.lon_1e6, 6);
+    int len = snprintf(buf, sizeof(buf), "<trkpt lat=\"%s\" lon=\"%s\">%s<time>%04d-%02d-%02dT%02d:%02d:%02dZ</time></trkpt>\n", lat, lon, ele,
       gt->tm_year + 1900, gt->tm_mon + 1, gt->tm_mday,
       gt->tm_hour, gt->tm_min, gt->tm_sec);
     if (len < 0) return n;

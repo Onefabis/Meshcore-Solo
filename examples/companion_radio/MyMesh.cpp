@@ -1210,28 +1210,28 @@ void MyMesh::onRawDataRecv(mesh::Packet *packet) {
 void MyMesh::onTraceRecv(mesh::Packet *packet, uint32_t tag, uint32_t auth_code, uint8_t flags,
                          const uint8_t *path_snrs, const uint8_t *path_hashes, uint8_t path_len) {
   uint8_t path_sz = flags & 0x03;  // NEW v1.11+
-  
+
   // Check if this is a response to our local ping
   for (int i = 0; i < PING_RESULT_MAX; i++) {
     if (_ping_results[i].tag == tag && _ping_results[i].auth_code == auth_code && !_ping_results[i].received) {
       PingResult& result = _ping_results[i];
-      
+
       // Extract SNR values
       // path_snrs contains signed SNR values in dB×4 for each hop (in order).
       // The last value is the SNR at the destination hearing our request (snr_out).
       // The final SNR from packet is the SNR at us hearing the response (snr_back).
       uint8_t snr_count = path_len >> path_sz;
-      
+
       if (snr_count > 0) {
         // Keep the encoded quarter-dB value; the UI converts it back to dB.
         result.snr_out_x4 = (int16_t)(int8_t)path_snrs[0];
       } else {
         result.snr_out_x4 = 0;
       }
-      
+
       // SNR back is from the final SNR in the packet (SNR at us receiving response).
       result.snr_back_x4 = (int16_t)(packet->getSNR() * 4);
-      
+
       // Calculate RTT
       unsigned long now = millis();
       if (now >= result.sent_ms) {
@@ -1239,13 +1239,13 @@ void MyMesh::onTraceRecv(mesh::Packet *packet, uint32_t tag, uint32_t auth_code,
       } else {
         result.rtt_ms = 0xFFFFFFFF; // Overflow
       }
-      
+
       uint8_t n = snr_count > TRACE_SNR_MAX ? TRACE_SNR_MAX : snr_count;
       result.n_snr = n;
       memcpy(result.snrs_x4, path_snrs, n);
 
       result.received = true;
-      
+
       // Notify callback if set
       if (_ping_callback) {
         _ping_callback(tag, result.snr_out_x4, result.snr_back_x4, result.rtt_ms);
@@ -1398,6 +1398,8 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
 #endif
   _prefs.display_brightness = 2; // medium brightness by default
   _prefs.buzzer_volume = 4;      // max volume by default
+  _prefs.haptic_mode = NodePrefs::HAPTIC_ALL;
+  _prefs.haptic_pattern = NodePrefs::HAPTIC_PATTERN_LONG;
   _prefs.quiet_from = 22;        // quiet hours (off by default) 22:00-07:00
   _prefs.quiet_to = 7;
   _prefs.ringtone_bpm_idx = 2;   // 120 bpm default
@@ -1426,6 +1428,8 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _prefs.tz_offset_hours = 0;  // UTC by default
   _prefs.low_batt_mv = 3400;  // auto-shutdown at 3.4V by default
   _prefs.batt_display_mode = 0; // icon by default
+  _prefs.quiet_from = 22;        // quiet hours (off by default) 22:00-07:00
+  _prefs.quiet_to = 7;
   //_prefs.rx_delay_base = 10.0f;  enable once new algo fixed
   _prefs.client_repeat = 0;
   // 0 dB is a real threshold, so "off" is its own sentinel.

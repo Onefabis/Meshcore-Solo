@@ -112,9 +112,9 @@ class RepeaterScreen : public UIScreen {
       case IT_REPEATER: strncpy(buf, p->client_repeat ? "ON" : "OFF", n); break;
       case IT_NETWORK:  strncpy(buf, p->repeater_use_profile ? "Custom" : "Current", n); break;
       case IT_RPRESET:  strncpy(buf, _picker.currentName(p, rptTarget(p)), n); break;
-      case IT_RFREQ:    snprintf(buf, n, "%.3f", p->repeater_freq); break;
+      case IT_RFREQ:    info::fixed3(buf, n, p->repeater_freq); break;
       case IT_RSF:      snprintf(buf, n, "%d", (int)p->repeater_sf); break;
-      case IT_RBW:      snprintf(buf, n, "%.1f kHz", p->repeater_bw); break;
+      case IT_RBW:      info::fixed1(buf, n, p->repeater_bw); strncat(buf, " kHz", n - strlen(buf) - 1); break;
       case IT_RCR:      snprintf(buf, n, "%d", (int)p->repeater_cr); break;
       case IT_SKIP:     strncpy(buf, p->repeat_skip_adverts ? "ON" : "OFF", n); break;
       case IT_HOPS:     rptctl::fmtHops(buf, n, p->repeat_max_hops); break;    // "Off": a value, not a switch

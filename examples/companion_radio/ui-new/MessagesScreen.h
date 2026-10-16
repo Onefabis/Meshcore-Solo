@@ -74,6 +74,7 @@ class MessagesScreen : public UIScreen {
   char      _ctx_fav_item[12]; // "Fav: ON" / "Fav: OFF" — shared by the channel,
                                // contact and room menus (never open at once)
   int       _ctx_fav_idx = -1; // row the Fav toggle sits on, frozen at menu open
+  int       _ctx_notif_idx = -1; // row the Notif toggle sits on, for contacts/rooms
   int       _ctx_pin_idx = -1; // ...and the Pin row, in the room menu (it sits after Fav,
                                // whose own row depends on whether Logout is shown)
   char      _pin_slot_labels[NodePrefs::FAVOURITES_COUNT][22];  // per-slot picker labels
@@ -871,11 +872,20 @@ class MessagesScreen : public UIScreen {
     }
   }
 
-  // Same, for the room menu -- its only value row is Fav.
-  void cycleRoomCtxValue(int sel) {
+  // Same, for the room menu. Rooms use the same per-server notification table
+  // as direct contacts, plus their favourite toggle.
+  void cycleRoomCtxValue(int sel, int dir) {
     ContactInfo ci;
-    if (sel != _ctx_fav_idx || _num_contacts <= 0) return;
-    if (the_mesh.getContactByIdx(_sorted[_contact_sel], ci)) toggleContactFav(ci);
+    if (_num_contacts <= 0 || !the_mesh.getContactByIdx(_sorted[_contact_sel], ci)) return;
+    if (sel == _ctx_notif_idx) {
+      uint8_t v = dmNotifState(ci.id.pub_key);
+      v = (dir > 0) ? (v + 1) % 3 : (v + 2) % 3;
+      setDmNotifState(ci.id.pub_key, v);
+      snprintf(_ctx_notif_item, sizeof(_ctx_notif_item), "Notif: %s", NOTIF_LABELS[v]);
+      _ctx_dirty = true;
+    } else if (sel == _ctx_fav_idx) {
+      toggleContactFav(ci);
+    }
   }
 
   // Same, for the channel menu. The list rebuild is deferred to menu close: with
@@ -1992,15 +2002,15 @@ public:
           return true;
         }
         if (_room_mode) {
-          // LEFT/RIGHT -- and Enter, via VALUE_NEXT -- toggle Fav in place; the
-          // menu stays open and only Back closes it.
+          // LEFT/RIGHT -- and Enter, via VALUE_NEXT -- cycle Notif/Fav in place;
+          // the menu stays open and only Back closes it.
           if (keyIsPrev(c) || keyIsNext(c)) {
-            cycleRoomCtxValue(_ctx_menu.selectedIndex());
+            cycleRoomCtxValue(_ctx_menu.selectedIndex(), keyIsNext(c) ? 1 : -1);
             return true;
           }
           auto res = _ctx_menu.handleInput(c);
           if (res == PopupMenu::VALUE_NEXT) {
-            cycleRoomCtxValue(_ctx_menu.selectedIndex());
+            cycleRoomCtxValue(_ctx_menu.selectedIndex(), 1);
             return true;   // still open -- the list rebuild below waits for close
           }
           if (res == PopupMenu::SELECTED && _num_contacts > 0) {
@@ -2015,11 +2025,11 @@ public:
               } else if (sel == _ctx_pin_idx) {
                 pinContactAction(_sel_contact);
                 if (_pin_picker_active) return true;   // rebuild below would close the submenu
-              } else if (sel != _ctx_fav_idx) {
+              } else if (sel != _ctx_fav_idx && sel != _ctx_notif_idx) {
                 // Logout: only reachable when isRoomLoggedIn() added this item.
                 _task->core().rooms.logout(_sel_contact.id.pub_key);
               }
-              // Fav is a value row -- Enter never selects it (see cycleRoomCtxValue).
+              // Notif and Fav are value rows -- Enter never selects them.
             }
           }
           if (res != PopupMenu::NONE && _phase == CONTACT_PICK) {
@@ -2118,16 +2128,21 @@ public:
         bool logged_in = have && isRoomLoggedIn(ci.id.pub_key);
         snprintf(_ctx_fav_item, sizeof(_ctx_fav_item),
                  (have && contactctl::favourite(ci)) ? "Fav: ON" : "Fav: OFF");
+        snprintf(_ctx_notif_item, sizeof(_ctx_notif_item), "Notif: %s",
+                 have ? NOTIF_LABELS[dmNotifState(ci.id.pub_key)] : NOTIF_LABELS[0]);
         { int pinned_slot = have ? _task->findFavouriteSlot(ci.id.pub_key) : -1;
           if (pinned_slot >= 0) snprintf(_ctx_pin_item, sizeof(_ctx_pin_item), "Unpin (slot %d)", pinned_slot + 1);
           else                  snprintf(_ctx_pin_item, sizeof(_ctx_pin_item), "Pin to dial"); }
         _ctx_menu.begin("Room options", logged_in ? 2 : 1);
         _ctx_menu.addItem("Login...");
         if (logged_in) _ctx_menu.addItem("Logout");
-        _ctx_fav_idx = logged_in ? 2 : 1;
+        _ctx_notif_idx = logged_in ? 2 : 1;
+        _ctx_fav_idx = _ctx_notif_idx + 1;
+        _ctx_menu.addValueItem(_ctx_notif_item);
         _ctx_menu.addValueItem(_ctx_fav_item);
         _ctx_pin_idx = _ctx_fav_idx + 1;
         _ctx_menu.addItem(_ctx_pin_item);
+        _ctx_dirty = false;
         return true;
       }
       if (c == KEY_CONTEXT_MENU && _num_contacts > 0 && !_room_mode) {

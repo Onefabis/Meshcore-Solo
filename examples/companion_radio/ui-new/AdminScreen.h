@@ -104,7 +104,7 @@ class AdminScreen : public UIScreen {
   void formatEditValue(const admin::Field& f, char* buf, size_t n) const {
     switch (f.kind) {
       case admin::K_ONOFF:    snprintf(buf, n, "%s", S().value != 0 ? "On" : "Off"); break;
-      case admin::K_RADIO_BW: snprintf(buf, n, "%.1f", S().radio_bw); break;
+      case admin::K_RADIO_BW: info::fixed1(buf, n, S().radio_bw); break;
       case admin::K_RADIO_SF: snprintf(buf, n, "%d", (int)S().radio_sf); break;
       case admin::K_RADIO_CR: snprintf(buf, n, "%d", (int)S().radio_cr); break;
       default:                snprintf(buf, n, "%d", (int)S().value); break;   // K_NUMBER

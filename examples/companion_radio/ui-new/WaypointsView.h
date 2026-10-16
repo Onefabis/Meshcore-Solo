@@ -165,7 +165,7 @@ class WaypointsView {
         _add_editor.render(display, ex, y);
       } else {
         char val[24];
-        if (i < 2) snprintf(val, sizeof(val), "%c %.5f", hemi, i == 0 ? _add_lat_mag : _add_lon_mag);
+        if (i < 2) { val[0] = hemi; val[1] = ' '; val[2] = '\0'; fixedfmt::format(val + 2, sizeof(val) - 2, i == 0 ? _add_lat_mag : _add_lon_mag, 5); }
         else       snprintf(val, sizeof(val), "%s", _add_label[0] ? _add_label : "(auto)");
         info::valueRow(display, y, label, val, sel, 0);
       }
@@ -390,8 +390,7 @@ public:
             const Waypoint& w = _task->waypoints().at(wi);
             double lat = w.lat_1e6 / 1000000.0, lon = w.lon_1e6 / 1000000.0;
             char text[80];
-            if (w.label[0]) snprintf(text, sizeof(text), WAYPOINT_MSG_TAG "%.5f,%.5f %s", lat, lon, w.label);
-            else            snprintf(text, sizeof(text), WAYPOINT_MSG_TAG "%.5f,%.5f", lat, lon);
+            strcpy(text, WAYPOINT_MSG_TAG); info::fixedE6(text + strlen(text), sizeof(text) - strlen(text), lat, 5); size_t z = strlen(text); text[z++] = ','; text[z] = '\0'; info::fixedE6(text + z, sizeof(text) - z, lon, 5); if (w.label[0]) { strncat(text, " ", sizeof(text) - strlen(text) - 1); strncat(text, w.label, sizeof(text) - strlen(text) - 1); }
             _task->shareToMessage(text);   // hands off to the Messages screen
           }
         } else {                                          // Set as target

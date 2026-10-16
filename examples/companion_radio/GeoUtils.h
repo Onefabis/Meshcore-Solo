@@ -9,6 +9,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include "ui-core/FixedFormat.h"
+#include "helpers/TxtDataHelpers.h"
 
 #ifndef M_PI
   #define M_PI 3.14159265358979323846
@@ -54,11 +56,11 @@ static inline void fmtDist(char* buf, int n, float km, bool imperial, bool space
     float ft = km * 3280.84f;
     if (ft < 1000.0f) { snprintf(buf, n, "%d%sft", (int)(ft + 0.5f), sp); return; }
     float mi = km * 0.621371f;
-    if (mi < 100.0f)  snprintf(buf, n, "%.1f%smi", mi, sp);
+    if (mi < 100.0f)  fixedfmt::format(buf, n, mi, 1, spaced ? " mi" : "mi");
     else              snprintf(buf, n, "%d%smi",  (int)(mi + 0.5f), sp);
   } else {
     if      (km < 1.0f)   snprintf(buf, n, "%d%sm",   (int)(km * 1000 + 0.5f), sp);
-    else if (km < 100.0f) snprintf(buf, n, "%.1f%skm", km, sp);
+    else if (km < 100.0f) fixedfmt::format(buf, n, km, 1, spaced ? " km" : "km");
     else                  snprintf(buf, n, "%d%skm",  (int)(km + 0.5f), sp);
   }
 }
@@ -107,7 +109,7 @@ static inline bool parseLatLon(const char* text, int32_t& lat_1e6, int32_t& lon_
   for (const char* p = scan; *p; p++) {
     if (*p != '-' && *p != '+' && *p != '.' && !isdigit((unsigned char)*p)) continue;
     char* end = nullptr;
-    double la = strtod(p, &end);
+    double la = StrHelper::parseDouble(p, &end);
     if (end == p) continue;
     if (!memchr(p, '.', end - p)) continue;           // require a decimal point (skip "5,6")
     const char* q = end;
@@ -116,7 +118,7 @@ static inline bool parseLatLon(const char* text, int32_t& lat_1e6, int32_t& lon_
     q++;
     while (*q == ' ') q++;
     char* end2 = nullptr;
-    double lo = strtod(q, &end2);
+    double lo = StrHelper::parseDouble(q, &end2);
     if (end2 == q) continue;
     if (la < -90.0 || la > 90.0 || lo < -180.0 || lo > 180.0) continue;
 

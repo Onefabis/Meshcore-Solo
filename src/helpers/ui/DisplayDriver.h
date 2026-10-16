@@ -60,6 +60,7 @@ public:
   virtual void startFrame(ColorVal bkg = UIColor::window_bkg) = 0;
   virtual void setTextSize(int sz) = 0;
   virtual void setColor(ColorVal c) = 0;
+  virtual void setRegionColor(int x, int y, int w, int h, uint16_t rgb565) { }
   virtual void setCursor(int x, int y) = 0;
   virtual void print(const char* str) = 0;
   virtual void printWordWrap(const char* str, int max_width) { print(str); }   // fallback to basic print() if no override

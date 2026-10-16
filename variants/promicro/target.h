@@ -7,8 +7,15 @@
 #include <helpers/radiolib/CustomSX1262Wrapper.h>
 #include <helpers/AutoDiscoverRTCClock.h>
 #ifdef DISPLAY_CLASS
-  #include <helpers/ui/SSD1306Display.h>
+  #if defined(ST7789)
+    #include <helpers/ui/ST7789LCDDisplay.h>
+  #else
+    #include <helpers/ui/SSD1306Display.h>
+  #endif
   #include <helpers/ui/MomentaryButton.h>
+#if defined(UI_HAS_ROTARY_INPUT)
+  #include <helpers/ui/GPIORotaryInput.h>
+#endif
 #endif
 
 #include <helpers/sensors/EnvironmentSensorManager.h>
@@ -21,8 +28,11 @@ extern EnvironmentSensorManager sensors;
 #ifdef DISPLAY_CLASS
   extern DISPLAY_CLASS display;
   extern MomentaryButton user_btn;
+#if defined(UI_HAS_ROTARY_INPUT)
+  extern RotaryInput& rotary_input;
+  extern GPIORotaryButton encoder_btn;
+#endif
 #endif
 
 bool radio_init();
 mesh::LocalIdentity radio_new_identity();
-

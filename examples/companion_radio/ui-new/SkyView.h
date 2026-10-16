@@ -102,11 +102,11 @@ namespace skyview {
     snprintf(buf, sizeof(buf), "Sats %d/%d", usedCount(g), g.count);
     d.setCursor(x0, y); d.print(buf);
     y += step;
-    if (g.hdop > 0 && g.hdop < 99) snprintf(buf, sizeof(buf), "HDOP %.1f", g.hdop);
+    if (g.hdop > 0 && g.hdop < 99) { fixedfmt::format(buf + 6, sizeof(buf) - 6, g.hdop, 1); memcpy(buf, "HDOP ", 5); }
     else snprintf(buf, sizeof(buf), "HDOP -");
     d.setCursor(x0, y); d.print(buf);
     y += step;
-    if (g.pdop > 0 && g.pdop < 99) snprintf(buf, sizeof(buf), "PDOP %.1f", g.pdop);
+    if (g.pdop > 0 && g.pdop < 99) { fixedfmt::format(buf + 6, sizeof(buf) - 6, g.pdop, 1); memcpy(buf, "PDOP ", 5); }
     else snprintf(buf, sizeof(buf), "PDOP -");
     d.setCursor(x0, y); d.print(buf);
     y += step;

@@ -311,6 +311,23 @@ struct NodePrefsFields {
     return L[idx < ALARM_REPEAT_COUNT ? idx : 0];
   }
 
+  static const uint8_t HAPTIC_ALL = 0;
+  static const uint8_t HAPTIC_ALL_MSG = 1;
+  static const uint8_t HAPTIC_NONE = 2;
+  static const uint8_t HAPTIC_MODE_COUNT = 3;
+  static const char* hapticModeLabel(uint8_t mode) {
+    static const char* labels[] = { "All", "All msg", "None" };
+    return labels[mode < HAPTIC_MODE_COUNT ? mode : HAPTIC_ALL];
+  }
+  static const uint8_t HAPTIC_PATTERN_LONG = 0;
+  static const uint8_t HAPTIC_PATTERN_TWO_MIDS = 1;
+  static const uint8_t HAPTIC_PATTERN_THREE_SHORTS = 2;
+  static const uint8_t HAPTIC_PATTERN_COUNT = 3;
+  static const char* hapticPatternLabel(uint8_t pattern) {
+    static const char* labels[] = { "Long", "Two mids", "Three shorts" };
+    return labels[pattern < HAPTIC_PATTERN_COUNT ? pattern : HAPTIC_PATTERN_LONG];
+  }
+
   // ── Buzzer & notifications ────────────────────────────────────────────
   uint8_t  buzzer_quiet;
   uint8_t  buzzer_volume;   // 0=min..4=max, default 4
@@ -614,6 +631,10 @@ struct NodePrefsFields {
     static const char* L[TRAIL_AUTOPAUSE_COUNT] = { "Off", "1m", "2m", "5m" };
     return L[idx < TRAIL_AUTOPAUSE_COUNT ? idx : 0];
   }
+  // /prefs' layout (see the comment at the top). A file of another version
+  // isn't read: the defaults stand.
+  static const uint16_t PREFS_VERSION = 2;   // 2: 2.0 layout, rc1-rc3 files start from the defaults
+
   // Movement under this many metres counts as "stationary" for auto-pause.
   // Deliberately coarser than the trail min-delta gate (and independent of it)
   // so GPS jitter while parked doesn't keep resetting the idle timer. Engine
@@ -705,6 +726,8 @@ struct NodePrefsFields {
     }
     if (pos < size) buf[pos] = '\0';
   }
+  uint8_t  haptic_mode;
+  uint8_t  haptic_pattern;
 };
 
 // The settings, saved as /prefs.json (DataStore). What upstream's companion
@@ -841,6 +864,7 @@ class NodePrefs : public NodePrefsFields, public ConfigSerializer {
     s.def("rt2_bpm", ringtone2_bpm_idx); s.def("rt2_len", ringtone2_len); s.hex("rt2", ringtone2_notes);
     s.def("mel_dm", notif_melody_dm); s.def("mel_ch", notif_melody_ch); s.def("mel_ad", notif_melody_ad);
     s.def("adv_scope", advert_sound_scope);
+    s.def("haptic", haptic_mode); s.def("haptic_pattern", haptic_pattern);
     s.hex("ch_over", ch_notif_override); s.hex("ch_muted", ch_notif_muted);
     s.hex("ch_mel_set", ch_notif_melody_set); s.hex("ch_mel_2", ch_notif_melody_2);
     s.hex("dm", dm_notif); s.hex("dm_mel", dm_melody);

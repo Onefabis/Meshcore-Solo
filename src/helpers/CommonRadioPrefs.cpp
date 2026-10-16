@@ -41,8 +41,8 @@ bool CommonRadioPrefs::handleCommand(const char* command, uint32_t sender_timest
     strcpy(tmp, &command[10]);
     const char *parts[4];
     int num = mesh::Utils::parseTextParts(tmp, parts, 4);
-    float freq  = num > 0 ? strtof(parts[0], nullptr) : 0.0f;
-    float bw    = num > 1 ? strtof(parts[1], nullptr) : 0.0f;
+    float freq  = num > 0 ? StrHelper::parseFloat(parts[0]) : 0.0f;
+    float bw    = num > 1 ? StrHelper::parseFloat(parts[1]) : 0.0f;
     uint8_t sf  = num > 2 ? atoi(parts[2]) : 0;
     uint8_t cr  = num > 3 ? atoi(parts[3]) : 0;
     if (freq >= 150.0f && freq <= 2500.0f && sf >= 5 && sf <= 12 && cr >= 5 && cr <= 8 && bw >= 7.0f && bw <= 500.0f) {
@@ -68,7 +68,7 @@ bool CommonRadioPrefs::handleCommand(const char* command, uint32_t sender_timest
   }
   if (memcmp(command, "set af ", 7) == 0) {
     char* end;
-    float af = strtof(&command[7], &end);
+    float af = StrHelper::parseFloat(&command[7], &end);
     if (end == &command[7] || af < 0 || af > 9) {
       strcpy(reply, "ERROR: af must be 0-9");
     } else {
@@ -86,7 +86,7 @@ bool CommonRadioPrefs::handleCommand(const char* command, uint32_t sender_timest
     return true;
   }
   if (memcmp(command, "set dutycycle ", 14) == 0) {
-    float dc = atof(&command[14]);
+    float dc = StrHelper::parseFloat(&command[14]);
     if (dc < 1 || dc > 100) {
       strcpy(reply, "ERROR: dutycycle must be 1-100");
     } else {
@@ -150,7 +150,7 @@ bool CommonRadioPrefs::handleCommand(const char* command, uint32_t sender_timest
     return true;
   }
   if (memcmp(command, "set rxdelay ", 12) == 0) {
-    float db = atof(&command[12]);
+    float db = StrHelper::parseFloat(&command[12]);
     if (db >= 0 && db <= 20.0f) {
       setRxDelay(db);
       strcpy(reply, "OK");
@@ -203,7 +203,7 @@ bool CommonRadioPrefs::handleCommand(const char* command, uint32_t sender_timest
     return true;
   }
   if (memcmp(command, "set txdelay ", 12) == 0) {
-    float f = atof(&command[12]);
+    float f = StrHelper::parseFloat(&command[12]);
     if (f >= 0 && f <= 2.0f) {
       setFloodTxDelay(f);
       strcpy(reply, "OK");
@@ -218,7 +218,7 @@ bool CommonRadioPrefs::handleCommand(const char* command, uint32_t sender_timest
     return true;
   }
   if (memcmp(command, "set direct.txdelay ", 19) == 0) {
-    float f = atof(&command[19]);
+    float f = StrHelper::parseFloat(&command[19]);
     if (f >= 0 && f <= 2.0f) {
       setDirectTxDelay(f);
       strcpy(reply, "OK");

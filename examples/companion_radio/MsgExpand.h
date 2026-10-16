@@ -6,6 +6,7 @@
 #include <helpers/SensorManager.h>
 #include "NodePrefs.h"   // localTm()
 #include <helpers/sensors/LPPDataHelpers.h>
+#include "ui-core/FixedFormat.h"
 
 // Expands placeholders in tmpl into out (out_len bytes).
 //   {loc}   — GPS coordinates (lat/lon) or "no GPS"
@@ -82,7 +83,7 @@ inline void expandMsg(const char* tmpl, char* out, int out_len,
 
     if (strncmp(p, "{loc}", 5) == 0) {
       char lb[32];
-      if (gps_valid) snprintf(lb, sizeof(lb), "%.5f,%.5f", lat, lon);
+      if (gps_valid) { fixedfmt::format(lb, sizeof(lb), lat, 5); size_t z = strlen(lb); lb[z++] = ','; lb[z] = '\0'; char c[20]; fixedfmt::format(c, sizeof(c), lon, 5); strncat(lb, c, sizeof(lb) - strlen(lb) - 1); }
       else           strcpy(lb, "no GPS");
       APPEND(lb, strlen(lb)); p += 5;
     } else if (strncmp(p, "{time}", 6) == 0) {
@@ -94,35 +95,35 @@ inline void expandMsg(const char* tmpl, char* out, int out_len,
       }
       p += 6;
     } else if (strncmp(p, "{temp}", 6) == 0) {
-      if (sv_ok[0]) { char b[10]; snprintf(b,sizeof(b),"%.1fC",sv[0]);   APPEND(b,strlen(b)); }
+      if (sv_ok[0]) { char b[10]; fixedfmt::format(b,sizeof(b),sv[0],1,"C");   APPEND(b,strlen(b)); }
       else           { APPEND("{temp}", 6); }
       p += 6;
     } else if (strncmp(p, "{hum}", 5) == 0) {
-      if (sv_ok[1]) { char b[8];  snprintf(b,sizeof(b),"%.0f%%",sv[1]);  APPEND(b,strlen(b)); }
+      if (sv_ok[1]) { char b[8];  fixedfmt::format(b,sizeof(b),sv[1],0,"%");  APPEND(b,strlen(b)); }
       else           { APPEND("{hum}", 5); }
       p += 5;
     } else if (strncmp(p, "{pres}", 6) == 0) {
-      if (sv_ok[2]) { char b[12]; snprintf(b,sizeof(b),"%.0fhPa",sv[2]); APPEND(b,strlen(b)); }
+      if (sv_ok[2]) { char b[12]; fixedfmt::format(b,sizeof(b),sv[2],0,"hPa"); APPEND(b,strlen(b)); }
       else           { APPEND("{pres}", 6); }
       p += 6;
     } else if (strncmp(p, "{batt}", 6) == 0) {
-      if (sv_ok[3]) { char b[8];  snprintf(b,sizeof(b),"%.2fV",sv[3]);   APPEND(b,strlen(b)); }
+      if (sv_ok[3]) { char b[8];  fixedfmt::format(b,sizeof(b),sv[3],2,"V");   APPEND(b,strlen(b)); }
       else           { APPEND("{batt}", 6); }
       p += 6;
     } else if (strncmp(p, "{alt}", 5) == 0) {
-      if (sv_ok[4]) { char b[10]; snprintf(b,sizeof(b),"%.0fm",sv[4]);   APPEND(b,strlen(b)); }
+      if (sv_ok[4]) { char b[10]; fixedfmt::format(b,sizeof(b),sv[4],0,"m");   APPEND(b,strlen(b)); }
       else           { APPEND("{alt}", 5); }
       p += 5;
     } else if (strncmp(p, "{lux}", 5) == 0) {
-      if (sv_ok[5]) { char b[10]; snprintf(b,sizeof(b),"%.0flux",sv[5]); APPEND(b,strlen(b)); }
+      if (sv_ok[5]) { char b[10]; fixedfmt::format(b,sizeof(b),sv[5],0,"lux"); APPEND(b,strlen(b)); }
       else           { APPEND("{lux}", 5); }
       p += 5;
     } else if (strncmp(p, "{dist}", 6) == 0) {
-      if (sv_ok[6]) { char b[12]; snprintf(b,sizeof(b),"%.2fm",sv[6]);   APPEND(b,strlen(b)); }
+      if (sv_ok[6]) { char b[12]; fixedfmt::format(b,sizeof(b),sv[6],2,"m");   APPEND(b,strlen(b)); }
       else           { APPEND("{dist}", 6); }
       p += 6;
     } else if (strncmp(p, "{co2}", 5) == 0) {
-      if (sv_ok[7]) { char b[12]; snprintf(b,sizeof(b),"%.0fppm",sv[7]); APPEND(b,strlen(b)); }
+      if (sv_ok[7]) { char b[12]; fixedfmt::format(b,sizeof(b),sv[7],0,"ppm"); APPEND(b,strlen(b)); }
       else           { APPEND("{co2}", 5); }
       p += 5;
     } else if (strncmp(p, "{name}", 6) == 0) {

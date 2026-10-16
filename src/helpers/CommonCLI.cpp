@@ -253,8 +253,8 @@ void CommonCLI::handleCommand(uint32_t sender_timestamp, char* command, char* re
       strcpy(tmp, &command[10]);
       const char *parts[5];
       int num = mesh::Utils::parseTextParts(tmp, parts, 5);
-      float freq  = num > 0 ? strtof(parts[0], nullptr) : 0.0f;
-      float bw    = num > 1 ? strtof(parts[1], nullptr) : 0.0f;
+      float freq  = num > 0 ? StrHelper::parseFloat(parts[0]) : 0.0f;
+      float bw    = num > 1 ? StrHelper::parseFloat(parts[1]) : 0.0f;
       uint8_t sf  = num > 2 ? atoi(parts[2]) : 0;
       uint8_t cr  = num > 3 ? atoi(parts[3]) : 0;
       int temp_timeout_mins  = num > 4 ? atoi(parts[4]) : 0;
@@ -540,11 +540,11 @@ void CommonCLI::handleSetCmd(uint32_t sender_timestamp, char* command, char* rep
     savePrefs();
     strcpy(reply, _prefs->disable_fwd ? "OK - repeat is now OFF" : "OK - repeat is now ON");
   } else if (memcmp(config, "lat ", 4) == 0) {
-    _prefs->node_lat = atof(&config[4]);
+    _prefs->node_lat = StrHelper::parseFloat(&config[4]);
     savePrefs();
     strcpy(reply, "OK");
   } else if (memcmp(config, "lon ", 4) == 0) {
-    _prefs->node_lon = atof(&config[4]);
+    _prefs->node_lon = StrHelper::parseFloat(&config[4]);
     savePrefs();
     strcpy(reply, "OK");
   } else if (memcmp(config, "flood.max.unscoped ", 19) == 0) {
@@ -605,7 +605,7 @@ void CommonCLI::handleSetCmd(uint32_t sender_timestamp, char* command, char* rep
       strcpy(reply, "OK");
     }
   } else if (sender_timestamp == 0 && memcmp(config, "freq ", 5) == 0) {
-    _prefs->freq = atof(&config[5]);
+    _prefs->freq = StrHelper::parseFloat(&config[5]);
     savePrefs();
     strcpy(reply, "OK - reboot to apply");
 #ifdef WITH_BRIDGE
@@ -658,13 +658,13 @@ void CommonCLI::handleSetCmd(uint32_t sender_timestamp, char* command, char* rep
     strcpy(reply, "OK");
 #endif
   } else if (memcmp(config, "adc.multiplier ", 15) == 0) {
-    _prefs->adc_multiplier = atof(&config[15]);
+    _prefs->adc_multiplier = StrHelper::parseFloat(&config[15]);
     if (_board->setAdcMultiplier(_prefs->adc_multiplier)) {
       savePrefs();
       if (_prefs->adc_multiplier == 0.0f) {
         strcpy(reply, "OK - using default board multiplier");
       } else {
-        sprintf(reply, "OK - multiplier set to %.3f", _prefs->adc_multiplier);
+        sprintf(reply, "OK - multiplier set to %s", StrHelper::ftoa3(_prefs->adc_multiplier));
       }
     } else {
       _prefs->adc_multiplier = 0.0f;
@@ -796,7 +796,7 @@ void CommonCLI::handleGetCmd(uint32_t sender_timestamp, char* command, char* rep
     if (adc_mult == 0.0f) {
       strcpy(reply, "Error: unsupported");
     } else {
-      sprintf(reply, "> %.3f", adc_mult);
+      sprintf(reply, "> %s", StrHelper::ftoa3(adc_mult));
     }
   // Power management commands
   } else if (memcmp(config, "pwrmgt.support", 14) == 0) {

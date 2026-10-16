@@ -7,9 +7,11 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <helpers/sensors/LPPDataHelpers.h>
 #include <helpers/sensors/LocationProvider.h>
 #include "Battery.h"
+#include "FixedFormat.h"
 
 namespace telemetry {
 
@@ -66,7 +68,7 @@ static bool isSensor(uint8_t f) { return lppType(f) != 0; }
 
 // Altitude always in the small unit (never km / mi).
 static void altText(float m, bool imperial, const Style& st, char* v, int n) {
-  snprintf(v, n, "%.0f%s%s", imperial ? m * 3.28084f : m, st.spaced ? " " : "", imperial ? "ft" : "m");
+  fixedfmt::format(v, n, imperial ? m * 3.28084f : m, 0, imperial ? (st.spaced ? " ft" : "ft") : (st.spaced ? " m" : "m"));
 }
 
 // The reading `r` is at (its header read) as text; false, and the data
@@ -77,21 +79,22 @@ static bool lppText(LPPReader& r, uint8_t type, bool imperial, const Style& st, 
   switch (type) {
     case LPP_TEMPERATURE:
       r.readTemperature(x);
-      snprintf(v, n, "%.1f%s%s%s", imperial ? x * 9 / 5 + 32 : x, sp, st.deg, imperial ? "F" : "C");
+      fixedfmt::format(v, n, imperial ? x * 9 / 5 + 32 : x, 1);
+      strncat(v, sp, n - strlen(v) - 1); strncat(v, st.deg, n - strlen(v) - 1); strncat(v, imperial ? "F" : "C", n - strlen(v) - 1);
       return true;
-    case LPP_RELATIVE_HUMIDITY:   r.readRelativeHumidity(x); snprintf(v, n, "%.0f%%", x); return true;
-    case LPP_BAROMETRIC_PRESSURE: r.readPressure(x); snprintf(v, n, "%.0f%shPa", x, sp); return true;
+    case LPP_RELATIVE_HUMIDITY:   r.readRelativeHumidity(x); fixedfmt::format(v, n, x, 0, "%"); return true;
+    case LPP_BAROMETRIC_PRESSURE: r.readPressure(x); fixedfmt::format(v, n, x, 0, sp[0] ? " hPa" : "hPa"); return true;
     case LPP_ALTITUDE:            r.readAltitude(x); altText(x, imperial, st, v, n); return true;
-    case LPP_LUMINOSITY:          r.readLuminosity(x); snprintf(v, n, "%.0f%slx", x, sp); return true;
-    case LPP_CONCENTRATION:       r.readConcentration(x); snprintf(v, n, "%.0f%sppm", x, sp); return true;
-    case LPP_VOLTAGE:             r.readVoltage(x); snprintf(v, n, "%.2f%sV", x, sp); return true;
-    case LPP_CURRENT:             r.readCurrent(x); snprintf(v, n, "%.3f%sA", x, sp); return true;
-    case LPP_POWER:               r.readPower(x); snprintf(v, n, "%.1f%sW", x, sp); return true;
-    case LPP_PERCENTAGE:          r.readPercentage(x); snprintf(v, n, "%.0f%%", x); return true;
-    case LPP_DISTANCE:            r.readDistance(x); snprintf(v, n, "%.2f%sm", x, sp); return true;
+    case LPP_LUMINOSITY:          r.readLuminosity(x); fixedfmt::format(v, n, x, 0, sp[0] ? " lx" : "lx"); return true;
+    case LPP_CONCENTRATION:       r.readConcentration(x); fixedfmt::format(v, n, x, 0, sp[0] ? " ppm" : "ppm"); return true;
+    case LPP_VOLTAGE:             r.readVoltage(x); fixedfmt::format(v, n, x, 2, sp[0] ? " V" : "V"); return true;
+    case LPP_CURRENT:             r.readCurrent(x); fixedfmt::format(v, n, x, 3, sp[0] ? " A" : "A"); return true;
+    case LPP_POWER:               r.readPower(x); fixedfmt::format(v, n, x, 1, sp[0] ? " W" : "W"); return true;
+    case LPP_PERCENTAGE:          r.readPercentage(x); fixedfmt::format(v, n, x, 0, "%"); return true;
+    case LPP_DISTANCE:            r.readDistance(x); fixedfmt::format(v, n, x, 2, sp[0] ? " m" : "m"); return true;
     case LPP_GPS:
       r.readGPS(x, y, z);
-      if (x != 0 || y != 0) snprintf(v, n, "%.4f %.4f", x, y);
+      if (x != 0 || y != 0) { fixedfmt::format(v, n, x, 4); size_t z = strlen(v); v[z++] = ' '; v[z] = '\0'; char c[20]; fixedfmt::format(c, sizeof(c), y, 4); strncat(v, c, n - strlen(v) - 1); }
       else snprintf(v, n, "--");
       return true;
   }
@@ -117,7 +120,7 @@ static void text(uint8_t f, const Inputs& in, const Style& st, char* v, int n) {
       if (in.loc && in.gps_on) snprintf(v, n, "%ld%s", (long)in.loc->satellitesCount(), st.nouns ? " sats" : "");
       return;
     case GPS:
-      if (fix) snprintf(v, n, "%.*f %.*f", st.gps_dp, in.loc->getLatitude() / 1e6, st.gps_dp, in.loc->getLongitude() / 1e6);
+      if (fix) { fixedfmt::formatE6(v, n, in.loc->getLatitude(), st.gps_dp); size_t z = strlen(v); v[z++] = ' '; v[z] = '\0'; char c[20]; fixedfmt::formatE6(c, sizeof(c), in.loc->getLongitude(), st.gps_dp); strncat(v, c, n - strlen(v) - 1); }
       else if (in.loc) snprintf(v, n, "no fix");
       return;
     case ALT_GPS:

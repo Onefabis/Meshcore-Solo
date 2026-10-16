@@ -2,6 +2,8 @@
 // Bot logic — not part of upstream MyMesh.cpp.
 // Included at the bottom of MyMesh.cpp after all class definitions.
 
+#include "ui-core/FixedFormat.h"
+
 // Minimum gap between two auto-replies to the same contact (DM), on the bot
 // channel, or on the bot room. Guards against floods and, with
 // botTriggerMatches()'s loop check, against bot↔bot ping-pong on a shared
@@ -616,7 +618,10 @@ void MyMesh::tickLocFix() {
   if (_loc_fix.sample_count > 0) {
     double avg_lat = _loc_fix.sum_lat / _loc_fix.sample_count;
     double avg_lon = _loc_fix.sum_lon / _loc_fix.sample_count;
-    snprintf(msg, sizeof(msg), averaging_done ? "loc: %.5f,%.5f" : "loc: %.5f,%.5f (partial fix)", avg_lat, avg_lon);
+    char lat[20], lon[20];
+    fixedfmt::format(lat, sizeof(lat), avg_lat, 5);
+    fixedfmt::format(lon, sizeof(lon), avg_lon, 5);
+    snprintf(msg, sizeof(msg), averaging_done ? "loc: %s,%s" : "loc: %s,%s (partial fix)", lat, lon);
   } else {
     snprintf(msg, sizeof(msg), "GPS: no fix (timeout)");
   }

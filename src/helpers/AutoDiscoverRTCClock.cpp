@@ -2,6 +2,7 @@
 #include "RTClib.h"
 #include <Melopero_RV3028.h>
 #include "RTC_RX8130CE.h"
+#include "ui/I2CBusLock.h"
 
 static RTC_DS3231 rtc_3231;
 static bool ds3231_success = false;
@@ -27,6 +28,7 @@ bool AutoDiscoverRTCClock::i2c_probe(TwoWire& wire, uint8_t addr) {
 }
 
 void AutoDiscoverRTCClock::begin(TwoWire& wire) {
+  I2CBusLock bus_lock;
   #if !defined(DISABLE_DS3231_PROBE)
   if (i2c_probe(wire, DS3231_ADDRESS)) {
     ds3231_success = rtc_3231.begin(&wire);
@@ -55,6 +57,7 @@ void AutoDiscoverRTCClock::begin(TwoWire& wire) {
 }
 
 uint32_t AutoDiscoverRTCClock::getCurrentTime() {
+  I2CBusLock bus_lock;
   if (ds3231_success) {
     return rtc_3231.now().unixtime();
   }
@@ -83,6 +86,7 @@ uint32_t AutoDiscoverRTCClock::getCurrentTime() {
 }
 
 void AutoDiscoverRTCClock::setCurrentTime(uint32_t time) { 
+  I2CBusLock bus_lock;
   if (ds3231_success) {
     rtc_3231.adjust(DateTime(time));
   } else if (rv3028_success) {

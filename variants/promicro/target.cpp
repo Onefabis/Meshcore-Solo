@@ -21,6 +21,12 @@ AutoDiscoverRTCClock rtc_clock(fallback_clock);
 #ifdef DISPLAY_CLASS
   DISPLAY_CLASS display;
   MomentaryButton user_btn(PIN_USER_BTN, 1000, true, true);
+#if defined(UI_HAS_ROTARY_INPUT)
+  #include <helpers/ui/GPIORotaryInput.h>
+  static GPIORotaryInput rotaryInputImpl(PIN_ENCODER_A, PIN_ENCODER_B);
+  RotaryInput& rotary_input = rotaryInputImpl;
+  GPIORotaryButton encoder_btn(PIN_ENCODER_PRESS);
+#endif
 #endif
 
 bool radio_init() {
@@ -33,5 +39,3 @@ mesh::LocalIdentity radio_new_identity() {
   RadioNoiseListener rng(radio);
   return mesh::LocalIdentity(&rng);  // create new random identity
 }
-
-

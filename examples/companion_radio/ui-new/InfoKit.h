@@ -12,6 +12,7 @@
 #include "icons.h"
 #include "../ui-core/StatusHistory.h"
 #include "../ui-core/Lettering.h"
+#include "../ui-core/FixedFormat.h"
 
 namespace info {
 
@@ -353,8 +354,29 @@ inline void chart(DisplayDriver& d, int x, int y, int w, int h, const History<N>
 
 // Axis formats for chart(): the unit each History is kept in, as read.
 inline void axisPlain(char* b, int n, int v) { snprintf(b, n, "%d", v); }
-inline void axisVolts(char* b, int n, int v) { snprintf(b, n, "%.2f", v / 1000.0f); }        // mV
-inline void axisQuarterDb(char* b, int n, int v) { snprintf(b, n, "%.0f", v / 4.0f); }    // dB x4
+inline void axisVolts(char* b, int n, int v) {
+  const int sign = v < 0 ? -1 : 1;
+  const int av = abs(v);
+  snprintf(b, n, "%s%d.%02d", sign < 0 ? "-" : "", av / 1000, (av % 1000) / 10);
+}
+inline void axisQuarterDb(char* b, int n, int v) {
+  const int sign = v < 0 ? -1 : 1;
+  const int av = abs(v);
+  snprintf(b, n, "%s%d", sign < 0 ? "-" : "", (av + 2) / 4);
+}
+
+// Float formatting uses newlib's heap-backed dtoa implementation.  The
+// nRF52840 Solo build has a deliberately small, fragmented heap, so keep the
+// frequently rendered labels on integer-only formatting paths.
+inline void fixed3(char* b, int n, float value) {
+  fixedfmt::format(b, n, value, 3);
+}
+inline void fixed1(char* b, int n, float value) {
+  fixedfmt::format(b, n, value, 1);
+}
+inline void fixedE6(char* b, int n, int32_t value, uint8_t digits = 5) {
+  fixedfmt::formatE6(b, n, value, digits);
+}
 
 // Text in the splash's slanted lettering (ui-core/Lettering.h: digits, ':',
 // '.', '-' and a few letters) at `sc` px a pixel, `gap` px between

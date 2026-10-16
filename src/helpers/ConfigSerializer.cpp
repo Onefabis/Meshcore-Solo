@@ -1,5 +1,6 @@
 #include "ConfigSerializer.h"
-#include <stdlib.h>   // atoi/atol/atof (Arduino.h pulls this in on-device, native builds do not)
+#include "TxtDataHelpers.h"
+#include <stdlib.h>   // atoi/atol (Arduino.h pulls this in on-device, native builds do not)
 
 bool ConfigSerializer::saveSerial(Stream& s) {
   Context context(&s, OP::WRITE);
@@ -294,7 +295,7 @@ void ConfigSerializer::def(const char* key, double& value) {
     }
   } else {
     if (_context->keyMatch(_depth, key)) {
-      value = atof(_context->getToken());
+      value = StrHelper::parseDouble(_context->getToken());
     }
   }
 }
@@ -311,7 +312,7 @@ void ConfigSerializer::def(const char* key, float& value) {
     }
   } else {
     if (_context->keyMatch(_depth, key)) {
-      value = (float) atof(_context->getToken());
+      value = StrHelper::parseFloat(_context->getToken());
     }
   }
 }

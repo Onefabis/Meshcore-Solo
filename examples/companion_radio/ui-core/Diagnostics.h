@@ -11,6 +11,7 @@
 
 #include <helpers/DeviceDiag.h>
 #include <stdarg.h>
+#include "FixedFormat.h"
 
 namespace diag {
 
@@ -76,7 +77,7 @@ inline int liveRows(Row* rows) {
   addRow(rows, n, "Stack free", "%luB", (unsigned long)DeviceDiag::getStackFreeBytes());
 
   addRow(rows, n, "Noise floor", "%d dBm", (int)radio_driver.getNoiseFloor());
-  addRow(rows, n, "RSSI/SNR", "%d/%.1f", (int)radio_driver.getLastRSSI(), radio_driver.getLastSNR());
+  char snr[12], rssi_snr[20]; fixedfmt::format(snr, sizeof(snr), radio_driver.getLastSNR(), 1); snprintf(rssi_snr, sizeof(rssi_snr), "%d/%s", (int)radio_driver.getLastRSSI(), snr); addRow(rows, n, "RSSI/SNR", "%s", rssi_snr);
   addRow(rows, n, "Pool free", "%d", the_mesh.getPoolFreeCount());
   addRow(rows, n, "Queue", "%d", the_mesh.getOutboundQueueLen());
 

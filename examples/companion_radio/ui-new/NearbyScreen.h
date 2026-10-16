@@ -516,9 +516,9 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
         snprintf(_ping_time_str, sizeof(_ping_time_str), "RTT: timeout");
       }
       if (snr_out != 0)
-        snprintf(_ping_snr_out_str, sizeof(_ping_snr_out_str), "SNR out: %.1f", snr_out / 4.0f);
+        strcpy(_ping_snr_out_str, "SNR out: "); fixedfmt::format(_ping_snr_out_str + 9, sizeof(_ping_snr_out_str) - 9, snr_out / 4.0f, 1);
       if (snr_back != 0)
-        snprintf(_ping_snr_back_str, sizeof(_ping_snr_back_str), "SNR back: %.1f", snr_back / 4.0f);
+        strcpy(_ping_snr_back_str, "SNR back: "); fixedfmt::format(_ping_snr_back_str + 10, sizeof(_ping_snr_back_str) - 10, snr_back / 4.0f, 1);
       _pinging = false;
     } else if (_pinging && millis() - _ping_started_ms >= _task->pingTimeoutMs()) {
       snprintf(_ping_time_str, sizeof(_ping_time_str), "RTT: timeout");
@@ -805,12 +805,12 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
     // row, unlabelled: then there are five rows either way.
     const bool one_pos = top + step * 5 + display.getLineHeight() > bottom;
     if (one_pos) {
-      snprintf(buf, sizeof(buf), "%.5f,%.5f", e.lat_e6 / 1e6, e.lon_e6 / 1e6);
+      info::fixedE6(buf, sizeof(buf), e.lat_e6, 5); size_t z = strlen(buf); buf[z++] = ','; buf[z] = '\0'; char coord[20]; info::fixedE6(coord, sizeof(coord), e.lon_e6, 5); strncat(buf, coord, sizeof(buf) - strlen(buf) - 1);
       display.drawTextEllipsized(tx, top, w - 4, buf);
     } else {
-      snprintf(buf, sizeof(buf), "Lat: %.5f", e.lat_e6 / 1e6);
+      strcpy(buf, "Lat: "); info::fixedE6(buf + 5, sizeof(buf) - 5, e.lat_e6, 5);
       display.setCursor(tx, top); display.print(buf);
-      snprintf(buf, sizeof(buf), "Lon: %.5f", e.lon_e6 / 1e6);
+      strcpy(buf, "Lon: "); info::fixedE6(buf + 5, sizeof(buf) - 5, e.lon_e6, 5);
       display.setCursor(tx, top + step); display.print(buf);
     }
     const int r0 = one_pos ? -1 : 0;   // the rows under the position move up one
@@ -1231,10 +1231,10 @@ class NearbyScreen : public UIScreen, protected NearbyModel {
     char buf[32];
     snprintf(buf, sizeof(buf), "RSSI: %d dBm", (int)e.rssi);
     display.setCursor(2, hdr + step);     display.print(buf);
-    snprintf(buf, sizeof(buf), "SNR:  %.1f dB", e.snr_x4 / 4.0f);
+    strcpy(buf, "SNR:  "); fixedfmt::format(buf + 6, sizeof(buf) - 6, e.snr_x4 / 4.0f, 1, " dB");
     display.setCursor(2, hdr + step * 2); display.print(buf);
     drawSignalBars(display, display.width() - 2, hdr + step * 2, e.snr_x4);          // how we hear them
-    snprintf(buf, sizeof(buf), "Rem:  %.1f dB", e.remote_snr_x4 / 4.0f);
+    strcpy(buf, "Rem:  "); fixedfmt::format(buf + 6, sizeof(buf) - 6, e.remote_snr_x4 / 4.0f, 1, " dB");
     display.setCursor(2, hdr + step * 3); display.print(buf);
     drawSignalBars(display, display.width() - 2, hdr + step * 3, e.remote_snr_x4);   // how they hear us
     display.setCursor(2, hdr + step * 4);
@@ -1603,4 +1603,3 @@ public:
     return false;
   }
 };
-

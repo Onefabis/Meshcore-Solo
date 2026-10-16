@@ -6,6 +6,7 @@
 
 #include "../Waypoint.h"
 #include "LocatorEngine.h"
+#include "FixedFormat.h"
 
 class WaypointModel {
 public:
@@ -76,9 +77,7 @@ public:
   void shareText(int i, char* out, size_t n) const {
     if (i < 0 || i >= _store.count()) { out[0] = '\0'; return; }
     const Waypoint& w = _store.at(i);
-    double lat = w.lat_1e6 / 1000000.0, lon = w.lon_1e6 / 1000000.0;
-    if (w.label[0]) snprintf(out, n, WAYPOINT_MSG_TAG "%.5f,%.5f %s", lat, lon, w.label);
-    else            snprintf(out, n, WAYPOINT_MSG_TAG "%.5f,%.5f", lat, lon);
+    strcpy(out, WAYPOINT_MSG_TAG); fixedfmt::formatE6(out + strlen(out), n - strlen(out), w.lat_1e6, 5); size_t z = strlen(out); out[z++] = ','; out[z] = '\0'; fixedfmt::formatE6(out + z, n - z, w.lon_1e6, 5); if (w.label[0]) { strncat(out, " ", n - strlen(out) - 1); strncat(out, w.label, n - strlen(out) - 1); }
   }
 
 private:

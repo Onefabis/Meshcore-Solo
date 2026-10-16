@@ -1,6 +1,7 @@
 #pragma once
 #include <helpers/ui/DisplayDriver.h>
 #include <helpers/ui/UIScreen.h>
+#include "../ui-core/FixedFormat.h"
 #include <Arduino.h>
 
 // Digit-by-digit numeric editor: LEFT/RIGHT moves a cursor between decimal
@@ -70,7 +71,20 @@ struct DigitEditor {
     // 0.1…), so a value with fewer integer digits than int_digits would shift
     // every glyph left and misplace the highlight (e.g. "62.500" vs "062.500").
     const int width = (int)int_digits + (dec_digits > 0 ? 1 + (int)dec_digits : 0);
-    snprintf(buf, sizeof(buf), "%0*.*f", width, (int)dec_digits, value);
+    long scale = 1;
+    for (int i = 0; i < dec_digits; i++) scale *= 10;
+    const long scaled = lroundf(value * (float)scale);
+    fixedfmt::formatScaled(buf, sizeof(buf), scaled, dec_digits);
+    char* digits = buf;
+    if (*digits == '-') digits++;
+    char* dot = strchr(digits, '.');
+    const int integer_len = dot ? (int)(dot - digits) : (int)strlen(digits);
+    const int zeroes = (int)int_digits - integer_len;
+    if (zeroes > 0 && (int)strlen(buf) + zeroes < (int)sizeof(buf)) {
+      const int tail_len = (int)strlen(digits) + 1;
+      memmove(digits + zeroes, digits, tail_len);
+      for (int i = 0; i < zeroes; i++) digits[i] = '0';
+    }
     const int cw = d.getCharWidth();
     const int char_idx = cursor < int_digits ? cursor : cursor + 1;  // skip '.'
     for (int k = 0; buf[k]; k++) {
