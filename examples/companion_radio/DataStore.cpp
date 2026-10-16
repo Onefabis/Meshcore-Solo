@@ -52,12 +52,16 @@ static File openWrite(FILESYSTEM* fs, const char* filename) {
 // destination is dropped first (a metadata-only window, vs. the record-by-record
 // write window of a direct overwrite). Returns false if the swap fails.
 static bool commitTempFile(FILESYSTEM* fs, const char* tmp, const char* final_path) {
-#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
-  return fs->rename(tmp, final_path);
-#else
-  fs->remove(final_path);
-  return fs->rename(tmp, final_path);
-#endif
+  // LittleFS normally replaces the destination atomically.  Some nRF52
+  // filesystem builds, however, reject rename() when the destination already
+  // exists.  Retry with an explicit remove so a successful write is not
+  // silently discarded and reported as saved.
+  fs->rename(tmp, final_path);
+  if (fs->exists(final_path) && !fs->exists(tmp)) return true;
+  if (fs->exists(final_path)) fs->remove(final_path);
+  if (!fs->exists(tmp)) return false;
+  fs->rename(tmp, final_path);
+  return fs->exists(final_path) && !fs->exists(tmp);
 }
 
 // Before a load: a restart between commitTempFile()'s remove and rename leaves
@@ -100,7 +104,7 @@ void DataStore::begin() {
     #include <CustomLFS_QSPIFlash.h>
   #elif defined(EXTRAFS)
     #include <CustomLFS.h>
-  #else 
+  #else
     #include <InternalFileSystem.h>
   #endif
 #endif
@@ -363,6 +367,13 @@ static void sanitize(NodePrefs& p) {
   if (p.ui_text_scale == 0) p.ui_text_scale = EINK_FONT_SCALE;
 #endif
   if (p.ui_icon_scale > NodePrefs::UI_ICON_SCALE_MAX) p.ui_icon_scale = 0;
+  // Haptic modes 2 and 3 used to mean Directs and Dir & room. Both are now
+  // covered by per-conversation Notif settings; keep old None (4) as None and
+  // map the removed message scopes to the closest remaining mode.
+  if (p.haptic_mode == 4) p.haptic_mode = NodePrefs::HAPTIC_NONE;
+  else if (p.haptic_mode == 2 || p.haptic_mode == 3) p.haptic_mode = NodePrefs::HAPTIC_ALL_MSG;
+  else if (p.haptic_mode >= NodePrefs::HAPTIC_MODE_COUNT) p.haptic_mode = NodePrefs::HAPTIC_ALL;
+  if (p.haptic_pattern >= NodePrefs::HAPTIC_PATTERN_COUNT) p.haptic_pattern = NodePrefs::HAPTIC_PATTERN_LONG;
 }
 
 // The settings a firmware before 2.0 kept in /new_prefs that still matter
@@ -490,8 +501,10 @@ void DataStore::savePrefs(NodePrefs& prefs, double node_lat, double node_lon) {
   out.flush();
   ok = ok && out.ok();   // once the flash fills, writes come back short
   file.close();
-  if (ok) { commitTempFile(_fs, "/prefs.tmp", "/prefs.json"); prefs.clearDirty(); }
-  else _fs->remove("/prefs.tmp");
+  if (ok) {
+    if (commitTempFile(_fs, "/prefs.tmp", "/prefs.json")) prefs.clearDirty();
+    else MESH_DEBUG_PRINTLN("prefs: commit failed");
+  } else _fs->remove("/prefs.tmp");
 }
 
 void DataStore::saveRTCTime() {
@@ -617,7 +630,8 @@ void DataStore::saveContacts(DataStoreHost* host, bool (*filter)(const ContactIn
   file.close();
 
   if (ok) {
-    commitTempFile(fs, "/contacts3.tmp", "/contacts3");
+    if (!commitTempFile(fs, "/contacts3.tmp", "/contacts3"))
+      MESH_DEBUG_PRINTLN("saveContacts: commit failed");
   } else {
     fs->remove("/contacts3.tmp");   // keep the previous good /contacts3
   }
@@ -740,7 +754,8 @@ void DataStore::saveChannels(DataStoreHost* host) {
   file.close();
 
   if (ok) {
-    commitTempFile(fs, "/channels3.tmp", "/channels3");
+    if (!commitTempFile(fs, "/channels3.tmp", "/channels3"))
+      MESH_DEBUG_PRINTLN("saveChannels: commit failed");
   } else {
     fs->remove("/channels3.tmp");   // keep the previous good /channels3
   }
@@ -804,7 +819,8 @@ void DataStore::saveScopeList(const ScopeList& list) {
   file.close();
 
   if (ok) {
-    commitTempFile(_fs, "/scopes1.tmp", "/scopes1");
+    if (!commitTempFile(_fs, "/scopes1.tmp", "/scopes1"))
+      MESH_DEBUG_PRINTLN("saveScopeList: commit failed");
   } else {
     _fs->remove("/scopes1.tmp");   // keep the previous good /scopes1
   }
@@ -1043,7 +1059,7 @@ bool DataStore::deleteBlobByKey(const uint8_t key[], int key_len) {
   makeBlobPath(key, key_len, path, sizeof(path));
 
   _fs->remove(path);
-  
+
   return true; // return true even if file did not exist
 }
 #endif

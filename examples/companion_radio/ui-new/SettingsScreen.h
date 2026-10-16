@@ -31,6 +31,10 @@ class SettingsScreen : public UIScreen {
     // Sound section
     SECTION_SOUND,
     BUZZER,
+#if defined(HAS_DRV2605) || defined(PIN_VIBRATION)
+    HAPTIC,
+    HAPTIC_PATTERN,
+#endif
     SCHEMA_SOUND,     // volume, quiet hours, what plays for what
     // Home pages section
     SECTION_HOME_PAGES,
@@ -489,6 +493,12 @@ class SettingsScreen : public UIScreen {
 #else
       val("Buzzer", "N/A");
 #endif
+#if defined(HAS_DRV2605) || defined(PIN_VIBRATION)
+    } else if (item == HAPTIC) {
+      val("Haptic", NodePrefs::hapticModeLabel(_task->getHapticMode()));
+    } else if (item == HAPTIC_PATTERN) {
+      val("Haptic pattern", NodePrefs::hapticPatternLabel(_task->getHapticPattern()));
+#endif
     } else if (isHomePage(item)) {
       if (p) ensurePageOrderInit(p);
       const int page = homePageAtRow(item, p);
@@ -506,14 +516,14 @@ class SettingsScreen : public UIScreen {
         display.print("Freq");
         _editor.render(display, display.width() - _reserve - 2 - display.getTextWidth("000.000"), y);
       } else {
-        snprintf(buf, sizeof(buf), "%.3f", p ? p->freq : 0.0f);
+        info::fixed3(buf, sizeof(buf), p ? p->freq : 0.0f);
         val("Freq", buf);
       }
     } else if (item == CUSTOM_SF) {
       snprintf(buf, sizeof(buf), "%d", p ? (int)p->sf : 0);
       val("SF", buf);
     } else if (item == CUSTOM_BW) {
-      snprintf(buf, sizeof(buf), "%.1f kHz", p ? p->bw : 0.0f);
+      info::fixed1(buf, sizeof(buf), p ? p->bw : 0.0f); strncat(buf, " kHz", sizeof(buf) - strlen(buf) - 1);
       val("BW", buf);
     } else if (item == CUSTOM_CR) {
       snprintf(buf, sizeof(buf), "%d", p ? (int)p->cr : 0);
@@ -545,7 +555,7 @@ class SettingsScreen : public UIScreen {
       int32_t lat, lon;
       if (_task->core().gpsEnabled()) val("Position", "GPS");
       else if (_task->core().fixedPosition(lat, lon)) {
-        snprintf(buf, sizeof(buf), "%.4f,%.4f", lat / 1e6, lon / 1e6);
+        info::fixedE6(buf, sizeof(buf), lat, 4); size_t z = strlen(buf); buf[z++] = ','; buf[z] = '\0'; char coord[20]; info::fixedE6(coord, sizeof(coord), lon, 4); strncat(buf, coord, sizeof(buf) - strlen(buf) - 1);
         val("Position", buf);
       } else val("Position", "None");
 #ifdef BLE_PIN_CODE
@@ -957,7 +967,7 @@ public:
         } else if (sel == 0) {   // Type in
           int32_t lat, lon;
           char cur[32] = "";
-          if (_task->core().fixedPosition(lat, lon)) snprintf(cur, sizeof(cur), "%.5f, %.5f", lat / 1e6, lon / 1e6);
+          if (_task->core().fixedPosition(lat, lon)) { info::fixedE6(cur, sizeof(cur), lat, 5); size_t z = strlen(cur); cur[z++] = ','; cur[z++] = ' '; cur[z] = '\0'; char coord[20]; info::fixedE6(coord, sizeof(coord), lon, 5); strncat(cur, coord, sizeof(cur) - strlen(cur) - 1); }
           _edit_pos = true;
           _kb->begin(cur, 31);
           _kb->prompt = "Lat, lon";
@@ -1040,6 +1050,18 @@ public:
       _dirty = true;
       return true;
     }
+#if defined(HAS_DRV2605) || defined(PIN_VIBRATION)
+    if (_selected == HAPTIC && (left || right || enter)) {
+      _task->cycleHapticMode();
+      _dirty = true;
+      return true;
+    }
+    if (_selected == HAPTIC_PATTERN && (left || right || enter)) {
+      _task->cycleHapticPattern();
+      _dirty = true;
+      return true;
+    }
+#endif
     if (isHomePage(_selected) && p) {
       ensurePageOrderInit(p);
       const int page = homePageAtRow(_selected, p);

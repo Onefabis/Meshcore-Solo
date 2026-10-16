@@ -931,8 +931,8 @@ public:
     row(&ICON_GPS, "GPS", buf);
     int32_t mla, mlo;
     if (_task->currentLocation(mla, mlo)) {
-      snprintf(buf, sizeof(buf), "%.5f", mla / 1e6); row(nullptr, "Lat", buf);
-      snprintf(buf, sizeof(buf), "%.5f", mlo / 1e6); row(nullptr, "Lon", buf);
+      info::fixedE6(buf, sizeof(buf), mla, 5); row(nullptr, "Lat", buf);
+      info::fixedE6(buf, sizeof(buf), mlo, 5); row(nullptr, "Lon", buf);
     }
 #else
     row(&ICON_GPS, "GPS", "none");
@@ -1236,8 +1236,10 @@ public:
     };
     char h[20], t[20], m[28];
 
-    snprintf(h, sizeof(h), "%.3f", _node_prefs->freq);
-    snprintf(t, sizeof(t), "SF%u %gk", (unsigned)_node_prefs->sf, _node_prefs->bw);
+    info::fixed3(h, sizeof(h), _node_prefs->freq);
+    const int bw10 = lroundf(_node_prefs->bw * 10.0f);
+    if ((bw10 % 10) == 0) snprintf(t, sizeof(t), "SF%u %dk", (unsigned)_node_prefs->sf, bw10 / 10);
+    else                   snprintf(t, sizeof(t), "SF%u %d.%dk", (unsigned)_node_prefs->sf, bw10 / 10, abs(bw10 % 10));
     const int nf = (int)radio_driver.getNoiseFloor();
     if (nf) snprintf(m, sizeof(m), "Noise %d dBm", nf); else m[0] = 0;
     tile(0, 0, &ICON_PG_RADIO, -1, h, t, m);
@@ -1262,7 +1264,12 @@ public:
       if (loc && on) snprintf(t, sizeof(t), "%ld sats", loc->satellitesCount());
       int32_t la, lo;
       m[0] = 0;
-      if (loc && on && loc->isValid() && _task->currentLocation(la, lo)) snprintf(m, sizeof(m), "%.4f %.4f", la / 1e6, lo / 1e6);
+      if (loc && on && loc->isValid() && _task->currentLocation(la, lo)) {
+        char lat[16], lon[16];
+        info::fixedE6(lat, sizeof(lat), la, 4);
+        info::fixedE6(lon, sizeof(lon), lo, 4);
+        snprintf(m, sizeof(m), "%s %s", lat, lon);
+      }
       tile(1, 0, &ICON_GPS, -1, h, t, m);
     }
 #else
@@ -1304,6 +1311,16 @@ public:
     }
     return nullptr;
   }
+
+#if defined(PROMICRO) && defined(ST7789)
+  static uint16_t pageIconColor(int page) {
+    static const uint16_t colors[(int)Count] = {
+      0xFFE0, 0xFD20, 0x07E0, 0x34FF, 0xF81F,
+      0xC618, 0x07FF, 0xA11F, 0xAFE5, 0xF800
+    };
+    return page >= 0 && page < (int)Count ? colors[page] : 0xFFFF;
+  }
+#endif
 
   int render(DisplayDriver& display) override {
     char tmp[80];
@@ -1348,6 +1365,7 @@ public:
         } else {
           display.translateUTF8ToBlocks(filtered_name, _node_prefs->node_name, sizeof(filtered_name));
         }
+        const int bar_text_x = now_ts >= 1000000000UL ? 2 : 0;
 
         // Only show the live-power readout when APC is actually controlling power —
         // not merely when the pref is set. While repeating APC is suppressed and
@@ -1357,10 +1375,10 @@ public:
           char pwr_buf[8];
           snprintf(pwr_buf, sizeof(pwr_buf), "%ddB", (int)radio_driver.getTxPower());
           int pwr_w = display.getTextWidth(pwr_buf);
-          display.drawTextEllipsized(0, bar_ty, rightEdge - 2 - pwr_w - 2, filtered_name);
+          display.drawTextEllipsized(bar_text_x, bar_ty, rightEdge - bar_text_x - pwr_w - 4, filtered_name);
           display.drawTextRightAlign(rightEdge - 2, bar_ty, pwr_buf);
         } else {
-          display.drawTextEllipsized(0, bar_ty, rightEdge - 2, filtered_name);
+          display.drawTextEllipsized(bar_text_x, bar_ty, rightEdge - bar_text_x - 2, filtered_name);
         }
       }
     }
@@ -1383,6 +1401,22 @@ public:
         if (fit < pitch) pitch = fit;
       }
       int x = display.width() / 2 - pitch * (n - 1) / 2;
+#if defined(PROMICRO) && defined(ST7789)
+      display.setColor(UIColor::primary_txt);
+      const int underline_x = x + pitch * curr_vis - icon_w / 2;
+      const int underline_y = dots_y + pg_half + 1;
+      display.fillRect(underline_x, underline_y, icon_w, display.sepH());
+      display.setRegionColor(underline_x, underline_y, icon_w, display.sepH(), pageIconColor(_page));
+      for (int i = 0; i < n; i++) {
+        const MiniIcon* icon = pageIcon(order[i]);
+        if (icon) {
+          miniIconDrawCenteredScaled(display, x, dots_y, *icon, s);
+          display.setRegionColor(x - icon->w * s / 2, dots_y - icon->h * s / 2,
+                                 icon->w * s, icon->h * s, pageIconColor(order[i]));
+        }
+        x += pitch;
+      }
+#else
       // The current page: its icon knocked out of a soft pill. During a page
       // turn the pill glides over from the page being left.
       const int pad = display.sepH();                  // the pill's margin round the icon
@@ -1405,6 +1439,7 @@ public:
         x += pitch;
       }
       display.setColor(UIColor::primary_txt);
+#endif
     }
 
     if (_page == HomePage::CLOCK) {

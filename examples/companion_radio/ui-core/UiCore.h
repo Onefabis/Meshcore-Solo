@@ -220,7 +220,12 @@ public:
     if (from.type == ADV_TYPE_CHAT) dm_unread.onIncoming(from.id.pub_key);   // before the ring insert below
     UiEvent& ev = pushMessageArrived(from.type == ADV_TYPE_ROOM ? UIEventType::roomMessage : UIEventType::contactMessage,
                                      from.name, -1);
-    if (from.type == ADV_TYPE_CHAT) { memcpy(ev.key, from.id.pub_key, 4); ev.flag = true; }
+    // Both direct contacts and room servers use the same four-byte prefix
+    // table for their per-conversation notification setting.
+    if (from.type == ADV_TYPE_CHAT || from.type == ADV_TYPE_ROOM) {
+      memcpy(ev.key, from.id.pub_key, 4);
+      ev.flag = true;
+    }
     // Add to the on-device conversation history. Room servers (ADV_TYPE_ROOM) are
     // viewed through the same history list as chat contacts (keyed by the server's
     // pubkey), so their posts must be stored too — otherwise an incoming room

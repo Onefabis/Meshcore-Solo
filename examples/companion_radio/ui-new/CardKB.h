@@ -1,19 +1,9 @@
 #pragma once
 // Included into UITask.cpp only: the CardKB (I2C keyboard) side of UITask.
 
-// The CardKB background poll task (see UITask::cardkbTask) shares its I2C bus
-// with the environment sensors, and some screens query those sensors while
-// rendering -- exactly when that task is active. Holding this lock around a
-// sensor query makes the two take turns. No-op on builds without the task.
-#if defined(CARDKB_I2C) && defined(NRF52_PLATFORM)
-static void* g_cardkb_bus_mutex = nullptr;   // SemaphoreHandle_t, set by startCardKBCapture()
-struct CardKBBusLock {
-  CardKBBusLock()  { if (g_cardkb_bus_mutex) xSemaphoreTake((SemaphoreHandle_t)g_cardkb_bus_mutex, portMAX_DELAY); }
-  ~CardKBBusLock() { if (g_cardkb_bus_mutex) xSemaphoreGive((SemaphoreHandle_t)g_cardkb_bus_mutex); }
-};
-#else
-struct CardKBBusLock { };
-#endif
+#include <helpers/ui/I2CBusLock.h>
+
+struct CardKBBusLock : I2CBusLock { };
 
 #if defined(CARDKB_I2C)
 // CardKB's "fn" column (key_map in M5Stack's unit_CardKB.cpp): Fn+<physical
@@ -57,7 +47,22 @@ static const char CARDKB_FN_BASE[48] = {
 // keypress, same as a MomentaryButton's CLICK event.
 void UITask::pollCardKB() {
 #if defined(CARDKB_I2C)
-  if (!_has_cardkb) return;
+  if (!_has_cardkb) {
+    // A keyboard can be powered or reset after the ProMicro.  Keep trying to
+    // attach in the background; a failed boot probe must not require another
+    // firmware reset.
+    const uint32_t now = millis();
+    if ((int32_t)(now - _cardkb_next_probe) >= 0) {
+      _cardkb_next_probe = now + 1000;
+      if (probeCardKB()) {
+        _has_cardkb = true;
+        _cardkb_last_raw = 0;
+        _cardkb_io_failures = 0;
+        startCardKBCapture();
+      }
+    }
+    return;
+  }
   // No artificial throttle: unlike a MomentaryButton (BUTTON_USE_INTERRUPTS
   // latches every edge in an ISR ring buffer, so it survives a blocking e-ink
   // refresh untouched), CardKB is plain I2C polling with no interrupt line on
@@ -74,15 +79,38 @@ void UITask::pollCardKB() {
     handleCardKBByte(q);
   }
   uint8_t raw;
-  if (!readCardKBEdge(raw)) return;
+  // The background sampler and the main loop share the primary Wire bus with
+  // the RTC, sensors, and DRV2605.  Keep this foreground read under the same
+  // mutex as the background task so a task switch cannot interleave I2C bytes.
+  {
+    CardKBBusLock bus_lock;
+    if (!readCardKBEdge(raw)) return;
+  }
   handleCardKBByte(raw);
 #endif
 }
 
 #if defined(CARDKB_I2C)
+bool UITask::probeCardKB() {
+  CardKBBusLock bus_lock;
+  CARDKB_I2C.beginTransmission(0x5F);
+  return CARDKB_I2C.endTransmission() == 0;
+}
+
 bool UITask::readCardKBEdge(uint8_t& raw) {
-  CARDKB_I2C.requestFrom(0x5F, 1);
-  if (!CARDKB_I2C.available()) return false;
+  const uint8_t received = CARDKB_I2C.requestFrom(0x5F, 1);
+  if (received != 1 || !CARDKB_I2C.available()) {
+    // Discard a partial/error response so a stale byte cannot be interpreted
+    // as the next key after a transient bus fault.
+    while (CARDKB_I2C.available()) CARDKB_I2C.read();
+    if (_cardkb_io_failures < 0xFF) _cardkb_io_failures++;
+    if (_cardkb_io_failures >= 3) {
+      _has_cardkb = false;
+      _cardkb_next_probe = millis();
+    }
+    return false;
+  }
+  _cardkb_io_failures = 0;
   raw = CARDKB_I2C.read();
   if (raw == _cardkb_last_raw) return false;   // still held (or still released) -- no new edge
   _cardkb_last_raw = raw;
@@ -125,11 +153,7 @@ void UITask::cardkbTask(void* self) {
 void UITask::startCardKBCapture() {
 #if defined(CARDKB_I2C) && defined(NRF52_PLATFORM)
   if (!_has_cardkb) return;
-  // A CardKB on the primary bus (ProMicro: CARDKB_I2C=Wire) shares it with an
-  // I2C display. The task would then read the keyboard in the middle of a frame
-  // going out to the OLED -- a garbled bus, a frozen screen and a reboot. An
-  // OLED frame takes milliseconds anyway, so the loop's own poll is enough.
-  if (&CARDKB_I2C == &Wire) return;
+  if (_cardkb_mutex) return;
   SemaphoreHandle_t m = xSemaphoreCreateMutex();
   if (!m) return;
   // Publish the mutex BEFORE creating the task: at higher priority it starts
@@ -137,10 +161,11 @@ void UITask::startCardKBCapture() {
   _cardkb_mutex = (void*)m;
   // TASK_PRIO_NORMAL (2) preempts the loop task (TASK_PRIO_LOW, 1); BLE runs higher.
   if (xTaskCreate(&UITask::cardkbTask, "cardkb", 512, this, TASK_PRIO_NORMAL, NULL) == pdPASS) {
-    g_cardkb_bus_mutex = m;   // shared with CardKBBusLock (sensor queries)
+    meshcore_i2c_bus_mutex = m;
     return;
   }
   _cardkb_mutex = nullptr;    // no task -> setCardKBBackground() stays a no-op
+  meshcore_i2c_bus_mutex = nullptr;
   vSemaphoreDelete(m);
 #endif
 }

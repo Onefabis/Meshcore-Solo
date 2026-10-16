@@ -225,7 +225,8 @@ float RAK12035_SoilMoisture::get_sensor_temperature()               //Command 05
     // Sensor returns a 16-bit signed integer (°C * 10)
     int16_t raw = (buf[0] << 8) | buf[1];
     float tempC = raw / 10.0f;
-    MESH_DEBUG_PRINTLN("Function 5: get_temperature() SUCCESS: Raw=%04X  Temp=%.1f C", raw, tempC);
+    MESH_DEBUG_PRINTLN("Function 5: get_temperature() SUCCESS: Raw=%04X  Temp=%ld.%ld C",
+      raw, (long)tempC, labs((long)(tempC * 10.0f)) % 10L);
     return tempC;
 }
 

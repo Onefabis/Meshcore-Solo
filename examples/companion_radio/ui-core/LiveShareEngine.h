@@ -13,6 +13,7 @@
 #include "../GeoUtils.h"
 #include "UiEvents.h"
 #include "CourseEngine.h"
+#include "FixedFormat.h"
 
 class LiveShareEngine {
 public:
@@ -108,7 +109,7 @@ public:
     if (_prefs->loc_share_target_type == 0) {
       // Channel: sendGroupMessage prepends "<name>: ", so the payload already
       // names the sender — keep the [LOC] text bare.
-      snprintf(text, sizeof(text), LOCATION_MSG_TAG "%.5f,%.5f", lat / 1e6, lon / 1e6);
+      strcpy(text, LOCATION_MSG_TAG); fixedfmt::formatE6(text + strlen(text), sizeof(text) - strlen(text), lat, 5); size_t z = strlen(text); text[z++] = ','; text[z] = '\0'; char c[20]; fixedfmt::formatE6(c, sizeof(c), lon, 5); strncat(text, c, sizeof(text) - strlen(text) - 1);
       ChannelDetails ch;
       if (!the_mesh.getChannel(_prefs->loc_share_channel_idx, ch)) return false;
       return the_mesh.sendGroupMessage(rtc_clock.getCurrentTime(), ch.channel,
@@ -120,8 +121,7 @@ public:
     ContactInfo* c = the_mesh.lookupContactByPubKey(_prefs->loc_share_dm_prefix,
                                                     NodePrefs::FAVOURITE_PREFIX_LEN);
     if (!c) return false;
-    snprintf(text, sizeof(text), LOCATION_MSG_TAG "%.5f,%.5f %s",
-             lat / 1e6, lon / 1e6, the_mesh.getNodeName());
+    strcpy(text, LOCATION_MSG_TAG); fixedfmt::formatE6(text + strlen(text), sizeof(text) - strlen(text), lat, 5); size_t z = strlen(text); text[z++] = ','; text[z] = '\0'; char coord[20]; fixedfmt::formatE6(coord, sizeof(coord), lon, 5); strncat(text, coord, sizeof(text) - strlen(text) - 1); strncat(text, " ", sizeof(text) - strlen(text) - 1); strncat(text, the_mesh.getNodeName(), sizeof(text) - strlen(text) - 1);
     uint32_t expected_ack = 0, est_timeout = 0;
     return the_mesh.sendMessage(*c, rtc_clock.getCurrentTime(), 0, text, expected_ack, est_timeout) > 0;
   }

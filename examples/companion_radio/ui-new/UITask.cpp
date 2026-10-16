@@ -11,8 +11,9 @@
 #include "target.h"
 
 #include "CardKB.h"
-#if defined(SIMPSON)
-  #include <string.h>
+
+#if defined(NRF52_PLATFORM) && defined(CARDKB_I2C)
+void* meshcore_i2c_bus_mutex = nullptr;
 #endif
 #ifdef WIFI_SSID
   #include <WiFi.h>
@@ -144,8 +145,13 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   // boards that set CARDKB_I2C=Wire directly in platformio.ini, that bus is
   // brought up by the board's own begin() instead -- also before this.
   // Either way, just probe for a CardKB sitting on it.
-  CARDKB_I2C.beginTransmission(0x5F);
-  _has_cardkb = (CARDKB_I2C.endTransmission() == 0);
+  // CardKB's controller may still be coming out of reset when the nRF52
+  // reaches the UI.  Retry the ACK probe instead of permanently disabling the
+  // keyboard after one startup race.
+  for (uint8_t attempt = 0; attempt < 5 && !_has_cardkb; attempt++) {
+    _has_cardkb = probeCardKB();
+    if (!_has_cardkb) delay(20);
+  }
 #endif
 
 #if defined(PIN_HALL_SENSOR)
@@ -173,6 +179,10 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
 
 #if defined(PIN_USER_BTN)
   user_btn.begin();
+#endif
+#if defined(UI_HAS_ROTARY_INPUT)
+  rotary_input.begin();
+  encoder_btn.begin();
 #endif
 #if UI_HAS_JOYSTICK
   // The directional joystick + Back share the same MomentaryButton machinery as
@@ -203,7 +213,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   buzzer.begin();
 #endif
 
-#ifdef PIN_VIBRATION
+#if defined(HAS_DRV2605) || defined(PIN_VIBRATION)
   vibration.begin();
 #endif
 
@@ -621,16 +631,14 @@ void UITask::notify(UIEventType t) {
   switch(t){
   case UIEventType::contactMessage:
     sn.playDM(_last_notif_dm_valid, _last_notif_dm_prefix);
-    _last_notif_dm_valid = false;
     break;
   case UIEventType::channelMessage:
     sn.playCH(_last_notif_ch_idx);
-    _last_notif_ch_idx = -1;
     break;
   case UIEventType::roomMessage:
-    // Rooms have many authors and no per-room melody pref, so use the default DM
-    // notification (no per-sender melody/mute lookup — the author varies per post).
-    sn.playDM(false, nullptr);
+    // The room server prefix is carried in the event, so its per-room Notif
+    // override applies just like a direct contact's override.
+    sn.playDM(_last_notif_dm_valid, _last_notif_dm_prefix);
     break;
   case UIEventType::advertReceivedFlood:
   case UIEventType::advertReceivedZeroHop:
@@ -646,19 +654,51 @@ void UITask::notify(UIEventType t) {
 }
 #endif
 
-#ifdef PIN_VIBRATION
-  // Trigger vibration for all UI events except none
-  if (t != UIEventType::none) {
-    vibration.trigger();
+#if defined(HAS_DRV2605) || defined(PIN_VIBRATION)
+  const uint8_t haptic_mode = getHapticMode();
+  bool haptic = false;
+  switch (haptic_mode) {
+    case NodePrefs::HAPTIC_ALL:
+      haptic = t != UIEventType::none;
+      break;
+    case NodePrefs::HAPTIC_ALL_MSG:
+      haptic = t == UIEventType::contactMessage || t == UIEventType::channelMessage || t == UIEventType::roomMessage;
+      break;
+    case NodePrefs::HAPTIC_NONE:
+    default:
+      break;
   }
+
+  // Per-contact, per-room and per-channel Notif settings have the same
+  // semantics as the sound notifier: Off suppresses the event, On forces it,
+  // and Default follows the global Haptic mode. Quiet hours remain the final
+  // override, so they silence even an explicit per-conversation On.
+  uint8_t notif_state = contactctl::NOTIF_DEFAULT;
+  bool has_notif_override = false;
+  if ((t == UIEventType::contactMessage || t == UIEventType::roomMessage) && _last_notif_dm_valid) {
+    notif_state = contactctl::notif(_node_prefs, _last_notif_dm_prefix);
+    has_notif_override = true;
+  } else if (t == UIEventType::channelMessage && _last_notif_ch_idx >= 0) {
+    notif_state = chanctl::notif(_node_prefs, (uint8_t)_last_notif_ch_idx);
+    has_notif_override = true;
+  }
+  if (has_notif_override) {
+    if (notif_state == contactctl::NOTIF_MUTED) haptic = false;
+    else if (notif_state == contactctl::NOTIF_ALWAYS) haptic = true;
+  }
+  const bool quiet_hours = _node_prefs && inQuietHours(*_node_prefs, rtc_clock.getCurrentTime());
+  if (haptic && !quiet_hours) vibration.trigger(getHapticPattern());
 #endif
+
+  _last_notif_dm_valid = false;
+  _last_notif_ch_idx = -1;
 }
 
 
 // Incoming message (UiEventType::MessageArrived, filed by the Core already):
 // alert overlay, wake the display, and the per-contact / per-channel sound.
 void UITask::onMessageArrived(const UiEvent& ev) {
-  if (ev.kind == UIEventType::contactMessage && ev.flag) {
+  if ((ev.kind == UIEventType::contactMessage || ev.kind == UIEventType::roomMessage) && ev.flag) {
     memcpy(_last_notif_dm_prefix, ev.key, 4);
     _last_notif_dm_valid = true;
   }
@@ -1458,8 +1498,27 @@ void UITask::loop() {
   }
 #endif
   pollCardKB();
-#if defined(SIMPSON)
-  pollSimpsonKeypad();
+#if defined(UI_HAS_ROTARY_INPUT)
+  {
+    RotaryInputEvent rotary_event = rotary_input.poll();
+    if (rotary_event != RotaryInputEvent::None) {
+      const bool home_navigation = curr == home;
+      const char key = home_navigation
+        ? (rotary_event == RotaryInputEvent::Next ? KEY_NEXT : KEY_PREV)
+        : (rotary_event == RotaryInputEvent::Next ? KEY_DOWN : KEY_UP);
+      enqueueKey(checkDisplayOn(key));
+    }
+
+    const int encoder_event = encoder_btn.check();
+    if (encoder_event == BUTTON_EVENT_CLICK) {
+      const bool compact_grid = _node_prefs && _node_prefs->keyboard_cardkb_compact && _kb.inPlainGridState();
+      enqueueKey(checkDisplayOn(compact_grid ? KEY_KB_ENTER : KEY_ENTER));
+    } else if (encoder_event == BUTTON_EVENT_LONG_PRESS) {
+      enqueueKey(handleLongPress(KEY_ENTER));
+    } else if (encoder_event == BUTTON_EVENT_DOUBLE_CLICK) {
+      enqueueKey(handleDoubleClick(KEY_CANCEL));
+    }
+  }
 #endif
   pollHallSensor();
 #ifdef ENV_USE_TCA8418
@@ -1649,7 +1708,7 @@ void UITask::loop() {
 #endif
   }
 
-#ifdef PIN_VIBRATION
+#if defined(HAS_DRV2605) || defined(PIN_VIBRATION)
   vibration.loop();
 #endif
 
@@ -1781,7 +1840,7 @@ void UITask::quickShareMyLocation() {
     return;
   }
   char text[40];
-  snprintf(text, sizeof(text), LOCATION_MSG_TAG "%.5f,%.5f", lat / 1e6, lon / 1e6);
+  strcpy(text, LOCATION_MSG_TAG); info::fixedE6(text + strlen(text), sizeof(text) - strlen(text), lat, 5); size_t z = strlen(text); text[z++] = ','; text[z] = '\0'; char c[20]; info::fixedE6(c, sizeof(c), lon, 5); strncat(text, c, sizeof(text) - strlen(text) - 1);
   shareToMessage(text);
 }
 
@@ -1845,7 +1904,6 @@ char UITask::handleLongPress(char c) {
 }
 
 char UITask::handleDoubleClick(char c) {
-  MESH_DEBUG_PRINTLN("UITask: double-click triggered");
   checkDisplayOn(c);
   return c;
 }
@@ -2187,3 +2245,23 @@ void UITask::cycleBuzzerMode() {
   _next_refresh = 0;
 #endif
 }
+
+#if defined(HAS_DRV2605) || defined(PIN_VIBRATION)
+void UITask::cycleHapticMode() {
+  if (!_node_prefs) return;
+  _node_prefs->haptic_mode = (uint8_t)((getHapticMode() + 1) % NodePrefs::HAPTIC_MODE_COUNT);
+  char alert[32];
+  snprintf(alert, sizeof(alert), "Haptic: %s", NodePrefs::hapticModeLabel(getHapticMode()));
+  showAlert(alert, 900);
+  _next_refresh = 0;
+}
+
+void UITask::cycleHapticPattern() {
+  if (!_node_prefs) return;
+  _node_prefs->haptic_pattern = (uint8_t)((getHapticPattern() + 1) % NodePrefs::HAPTIC_PATTERN_COUNT);
+  char alert[40];
+  snprintf(alert, sizeof(alert), "Haptic: %s", NodePrefs::hapticPatternLabel(getHapticPattern()));
+  showAlert(alert, 900);
+  _next_refresh = 0;
+}
+#endif

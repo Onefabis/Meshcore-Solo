@@ -158,6 +158,69 @@ const char* StrHelper::ftoa3(float f) {
   return s;
 }
 
+double StrHelper::parseDouble(const char* src, char** endptr) {
+  const char* begin = src;
+  const char* p = src;
+  while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n' || *p == '\f' || *p == '\v') p++;
+
+  bool negative = false;
+  if (*p == '+' || *p == '-') {
+    negative = *p == '-';
+    p++;
+  }
+
+  double value = 0.0;
+  bool have_digit = false;
+  while (*p >= '0' && *p <= '9') {
+    have_digit = true;
+    value = value * 10.0 + (*p++ - '0');
+  }
+  if (*p == '.') {
+    p++;
+    double scale = 0.1;
+    while (*p >= '0' && *p <= '9') {
+      have_digit = true;
+      value += (*p++ - '0') * scale;
+      scale *= 0.1;
+    }
+  }
+
+  if (have_digit && (*p == 'e' || *p == 'E')) {
+    const char* exponent_start = p;
+    p++;
+    bool exponent_negative = false;
+    if (*p == '+' || *p == '-') {
+      exponent_negative = *p == '-';
+      p++;
+    }
+    int exponent = 0;
+    bool have_exponent_digit = false;
+    while (*p >= '0' && *p <= '9') {
+      have_exponent_digit = true;
+      if (exponent < 400) exponent = exponent * 10 + (*p - '0');
+      p++;
+    }
+    if (have_exponent_digit) {
+      double factor = 1.0;
+      while (exponent-- > 0) factor *= 10.0;
+      value = exponent_negative ? value / factor : value * factor;
+    } else {
+      p = exponent_start;
+    }
+  }
+
+  if (!have_digit) {
+    if (endptr) *endptr = const_cast<char*>(begin);
+    return 0.0;
+  }
+  if (endptr) *endptr = const_cast<char*>(p);
+  return negative ? -value : value;
+}
+
+float StrHelper::parseFloat(const char* src, char** endptr) {
+  return (float)parseDouble(src, endptr);
+}
+
 uint32_t StrHelper::fromHex(const char* src) {
   uint32_t n = 0;
   while (*src) {

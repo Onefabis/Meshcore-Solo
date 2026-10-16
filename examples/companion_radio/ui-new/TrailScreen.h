@@ -478,7 +478,7 @@ private:
     int32_t lat, lon;
     if (!_task->currentLocation(lat, lon)) { _task->showAlert("No GPS fix", 1000); return; }
     char text[40];
-    snprintf(text, sizeof(text), LOCATION_MSG_TAG "%.5f,%.5f", lat / 1e6, lon / 1e6);
+    strcpy(text, LOCATION_MSG_TAG); info::fixedE6(text + strlen(text), sizeof(text) - strlen(text), lat, 5); size_t z = strlen(text); text[z++] = ','; text[z] = '\0'; char c[20]; info::fixedE6(c, sizeof(c), lon, 5); strncat(text, c, sizeof(text) - strlen(text) - 1);
     _task->shareToMessage(text);
   }
 

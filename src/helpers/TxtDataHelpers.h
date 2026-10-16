@@ -17,6 +17,10 @@ public:
   static void strzcpy(char* dest, const char* src, size_t buf_sz);   // pads with trailing nulls
   static const char* ftoa(float f);
   static const char* ftoa3(float f); //Converts float to string with 3 decimal places
+  // Locale-independent numeric parsing without newlib's heap-using dtoa code.
+  // The end pointer follows strtod/strtof semantics and may be null.
+  static double parseDouble(const char* src, char** endptr = nullptr);
+  static float parseFloat(const char* src, char** endptr = nullptr);
   static bool isBlank(const char* str);
   static uint32_t fromHex(const char* src);
 };

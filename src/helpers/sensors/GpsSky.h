@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include "helpers/TxtDataHelpers.h"
 
 class GpsSky {
 public:
@@ -182,9 +183,9 @@ private:
       // mode, fix (1/2/3), 12 PRNs, PDOP, HDOP, VDOP [, system id]
       _gsa_ms = now;
       if (nf > 2) fix_mode = (uint8_t)atoi(f[2]);
-      if (nf > 15 && f[15][0]) pdop = atof(f[15]);
-      if (nf > 16 && f[16][0]) hdop = atof(f[16]);
-      if (nf > 17 && f[17][0]) vdop = atof(f[17]);
+      if (nf > 15 && f[15][0]) pdop = StrHelper::parseFloat(f[15]);
+      if (nf > 16 && f[16][0]) hdop = StrHelper::parseFloat(f[16]);
+      if (nf > 17 && f[17][0]) vdop = StrHelper::parseFloat(f[17]);
       uint8_t sys = nf > 18 && f[18][0] ? idSys(atoi(f[18])) : tsys;
       for (int i = 3; i <= 14 && i < nf; i++) {
         if (!f[i][0]) continue;
@@ -197,9 +198,9 @@ private:
       // time, lat, N, lon, E, quality, used, HDOP, altitude, M, ...
       if (nf > 6) fix_quality = (uint8_t)atoi(f[6]);
       if (nf > 7) sats_used = (uint8_t)atoi(f[7]);
-      if (nf > 8 && f[8][0] && now - _gsa_ms > 3000) hdop = atof(f[8]);   // GSA's is finer
+      if (nf > 8 && f[8][0] && now - _gsa_ms > 3000) hdop = StrHelper::parseFloat(f[8]);   // GSA's is finer
       alt_valid = nf > 9 && f[9][0] && fix_quality > 0;
-      if (alt_valid) alt_m = atof(f[9]);
+      if (alt_valid) alt_m = StrHelper::parseFloat(f[9]);
       if (fix_quality > 0 && !ttff_ms) ttff_ms = now - start_ms + 1;
     } else if (!strcmp(type, "RMC")) {
       // time, status, lat, N, lon, E, speed (knots), course, date, ...
@@ -210,8 +211,8 @@ private:
         utc_valid = true;
       }
       rmc_valid = nf > 2 && f[2][0] == 'A';
-      speed_kmh = nf > 7 && f[7][0] ? atof(f[7]) * 1.852f : 0;
-      course_deg = nf > 8 && f[8][0] ? atof(f[8]) : 0;
+      speed_kmh = nf > 7 && f[7][0] ? StrHelper::parseFloat(f[7]) * 1.852f : 0;
+      course_deg = nf > 8 && f[8][0] ? StrHelper::parseFloat(f[8]) : 0;
     }
   }
 };

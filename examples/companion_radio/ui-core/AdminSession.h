@@ -16,6 +16,8 @@
 // sends the set. Results arrive as Outcomes, one at a time, via take().
 
 #include <helpers/ClientACL.h>   // PERM_ACL_ADMIN / PERM_ACL_ROLE_MASK
+#include "FixedFormat.h"
+#include "helpers/TxtDataHelpers.h"
 
 namespace admin {
 
@@ -151,8 +153,8 @@ static bool parseRadio(const char* val, float& freq, float& bw, uint8_t& sf, uin
       p = c + 1;
     }
   }
-  freq = strtof(parts[0], nullptr);
-  bw   = strtof(parts[1], nullptr);
+  freq = StrHelper::parseFloat(parts[0]);
+  bw   = StrHelper::parseFloat(parts[1]);
   sf   = (uint8_t)atoi(parts[2]);
   cr   = (uint8_t)atoi(parts[3]);
   return true;
@@ -262,8 +264,9 @@ public:
   bool sendValue() {
     if (!_field || !_field->set_prefix) return false;
     char cmd[sizeof(_cmd)];
-    if (_field->isRadio())
-      snprintf(cmd, sizeof(cmd), "%s %.3f,%.3f,%d,%d", _field->set_prefix, radio_freq, radio_bw, (int)radio_sf, (int)radio_cr);
+    if (_field->isRadio()) {
+      char freq[16], bw[16]; fixedfmt::format(freq, sizeof(freq), radio_freq, 3); fixedfmt::format(bw, sizeof(bw), radio_bw, 3); snprintf(cmd, sizeof(cmd), "%s %s,%s,%d,%d", _field->set_prefix, freq, bw, (int)radio_sf, (int)radio_cr);
+    }
     else if (_field->kind == admin::K_ONOFF)
       snprintf(cmd, sizeof(cmd), "%s %s", _field->set_prefix, value != 0 ? "on" : "off");
     else

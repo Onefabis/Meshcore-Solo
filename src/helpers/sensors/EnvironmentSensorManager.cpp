@@ -1013,17 +1013,27 @@ void EnvironmentSensorManager::loop() {
     if ((i2cGPSFlag || serialGPSFlag) && _location->isValid()) {
       node_lat = ((double)_location->getLatitude())/1000000.;
       node_lon = ((double)_location->getLongitude())/1000000.;
-      MESH_DEBUG_PRINTLN("lat %f lon %f", node_lat, node_lon);
+      MESH_DEBUG_PRINTLN("lat %ld.%06ld lon %ld.%06ld",
+        (long)node_lat, labs((long)(node_lat * 1000000.0)) % 1000000L,
+        (long)node_lon, labs((long)(node_lon * 1000000.0)) % 1000000L);
       node_altitude = ((double)_location->getAltitude()) / 1000.0;
-      MESH_DEBUG_PRINTLN("lat %f lon %f alt %f", node_lat, node_lon, node_altitude);
+      MESH_DEBUG_PRINTLN("lat %ld.%06ld lon %ld.%06ld alt %ld.%03ld",
+        (long)node_lat, labs((long)(node_lat * 1000000.0)) % 1000000L,
+        (long)node_lon, labs((long)(node_lon * 1000000.0)) % 1000000L,
+        (long)node_altitude, labs((long)(node_altitude * 1000.0)) % 1000L);
     }
     #else
     if (_location->isValid()) {
       node_lat = ((double)_location->getLatitude())/1000000.;
       node_lon = ((double)_location->getLongitude())/1000000.;
-      MESH_DEBUG_PRINTLN("lat %f lon %f", node_lat, node_lon);
+      MESH_DEBUG_PRINTLN("lat %ld.%06ld lon %ld.%06ld",
+        (long)node_lat, labs((long)(node_lat * 1000000.0)) % 1000000L,
+        (long)node_lon, labs((long)(node_lon * 1000000.0)) % 1000000L);
       node_altitude = ((double)_location->getAltitude()) / 1000.0;
-      MESH_DEBUG_PRINTLN("lat %f lon %f alt %f", node_lat, node_lon, node_altitude);
+      MESH_DEBUG_PRINTLN("lat %ld.%06ld lon %ld.%06ld alt %ld.%03ld",
+        (long)node_lat, labs((long)(node_lat * 1000000.0)) % 1000000L,
+        (long)node_lon, labs((long)(node_lon * 1000000.0)) % 1000000L,
+        (long)node_altitude, labs((long)(node_altitude * 1000.0)) % 1000L);
     }
     #endif
     }

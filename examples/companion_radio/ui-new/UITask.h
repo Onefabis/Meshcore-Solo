@@ -19,7 +19,9 @@
 #ifdef PIN_BUZZER
   #include <helpers/ui/buzzer.h>
 #endif
-#ifdef PIN_VIBRATION
+#if defined(HAS_DRV2605)
+  #include <helpers/ui/DRV2605Vibration.h>
+#elif defined(PIN_VIBRATION)
   #include <helpers/ui/GenericVibration.h>
 #endif
 
@@ -59,7 +61,9 @@ class UITask : public UITaskBase, public UiCoreHost {
 #ifdef PIN_BUZZER
   genericBuzzer buzzer;
 #endif
-#ifdef PIN_VIBRATION
+#if defined(HAS_DRV2605)
+  DRV2605Vibration vibration;
+#elif defined(PIN_VIBRATION)
   GenericVibration vibration;
 #endif
   unsigned long _next_refresh, _auto_off;
@@ -216,12 +220,15 @@ private:
   // the last raw byte seen so a held key enqueues exactly one press instead
   // of one per poll tick.
   uint8_t  _cardkb_last_raw = 0;
+  uint8_t  _cardkb_io_failures = 0;
+  uint32_t _cardkb_next_probe = 0;
   // Keys sampled by the background poll task while the display blocks the
   // main loop; drained (in order) by the next pollCardKB().
   static const uint8_t CARDKB_Q_LEN = 16;
   uint8_t  _cardkb_q[CARDKB_Q_LEN];
   volatile uint8_t _cardkb_q_head = 0, _cardkb_q_tail = 0;   // shared with the poll task
   bool readCardKBEdge(uint8_t& raw);   // one I2C read + debounce; true on a new keypress
+  bool probeCardKB();                  // ACK probe used at boot and after a transient disconnect
   void cardkbQueuePush(uint8_t raw);   // add a sampled key to _cardkb_q (drops if full)
 #if defined(NRF52_PLATFORM)
   // nRF52 (FreeRTOS): a small higher-priority task samples the CardKB every
@@ -533,6 +540,18 @@ public:
 
   void toggleBuzzer();
   void cycleBuzzerMode();   // ON → OFF → Auto → ON
+#if defined(HAS_DRV2605) || defined(PIN_VIBRATION)
+  uint8_t getHapticMode() const {
+    return _node_prefs && _node_prefs->haptic_mode < NodePrefs::HAPTIC_MODE_COUNT
+      ? _node_prefs->haptic_mode : NodePrefs::HAPTIC_ALL;
+  }
+  void cycleHapticMode();
+  uint8_t getHapticPattern() const {
+    return _node_prefs && _node_prefs->haptic_pattern < NodePrefs::HAPTIC_PATTERN_COUNT
+      ? _node_prefs->haptic_pattern : NodePrefs::HAPTIC_PATTERN_LONG;
+  }
+  void cycleHapticPattern();
+#endif
   int  getBuzzerMode(); // 0=ON, 1=OFF, 2=Auto
   bool getGPSState();
   bool hasGPS();   // true if this board exposes a toggleable GPS (distinct from GPS being off)

@@ -119,13 +119,13 @@ private:
     char a[24], b[24];
     const int lh = d.getLineHeight();
     if (f.place(info::bigH(d) + 2)) {
-      snprintf(a, sizeof(a), "%.3f", p ? p->freq : 0.0f);
+      info::fixed3(a, sizeof(a), p ? p->freq : 0.0f);
       info::big(d, 1, f.at, a, "MHz");
     }
     if (f.place(lh + 5)) {
       int x = 1;
       snprintf(a, sizeof(a), "SF%u", p ? (unsigned)p->sf : 0);      x = info::chip(d, x, f.at, a);
-      snprintf(a, sizeof(a), "BW%g", p ? p->bw : 0.0f);              x = info::chip(d, x, f.at, a);
+      info::fixed1(a, sizeof(a), p ? p->bw : 0.0f); memmove(a + 2, a, strlen(a) + 1); a[0] = 'B'; a[1] = 'W'; x = info::chip(d, x, f.at, a);
       snprintf(a, sizeof(a), "CR%u", p ? (unsigned)p->cr : 0);       info::chip(d, x, f.at, a);
     }
     snprintf(a, sizeof(a), "%d dBm", (int)radio_driver.getTxPower());
@@ -150,7 +150,8 @@ private:
       info::valueRow(d, f.at, "Last RX", b, false, rsv, 1);
       drawSignalBars(d, d.width() - rsv - 2 - d.getTextWidth(b) - 5, f.at, (int)(snr * 4));
     }
-    snprintf(b, sizeof(b), "%.1f dB", radio_driver.getLastSNR());
+    info::fixed1(b, sizeof(b), radio_driver.getLastSNR());
+    strncat(b, " dB", sizeof(b) - strlen(b) - 1);
     if (Features::IS_EINK) chartBlock(d, f, rsv, "SNR", b, _hist.snr, 20, false, "32 pkts", info::axisQuarterDb);
     else row(d, f, rsv, "Last SNR", b);
   }
@@ -187,9 +188,9 @@ private:
     const long lon = fix ? loc->getLongitude() : lround(sensors.node_lon * 1000000.0);
     // The driver reports 999 deg before a first fix (0,0 in the simulator).
     const bool known = labs(lat) <= 90000000L && (lat || lon);
-    if (known) snprintf(a, sizeof(a), "%.5f\xc2\xb0%c", labs(lat) / 1e6, lat < 0 ? 'S' : 'N'); else strcpy(a, "-");
+    if (known) { info::fixedE6(a, sizeof(a), (int32_t)labs(lat), 5); size_t z = strlen(a); snprintf(a + z, sizeof(a) - z, "\xc2\xb0%c", lat < 0 ? 'S' : 'N'); } else strcpy(a, "-");
     row(d, f, rsv, fix ? "Lat" : "Lat (last)", a);
-    if (known) snprintf(a, sizeof(a), "%.5f\xc2\xb0%c", labs(lon) / 1e6, lon < 0 ? 'W' : 'E'); else strcpy(a, "-");
+    if (known) { info::fixedE6(a, sizeof(a), (int32_t)labs(lon), 5); size_t z = strlen(a); snprintf(a + z, sizeof(a) - z, "\xc2\xb0%c", lon < 0 ? 'W' : 'E'); } else strcpy(a, "-");
     row(d, f, rsv, fix ? "Lon" : "Lon (last)", a);
     if (fix || (sensors.node_lat != 0.0 || sensors.node_lon != 0.0)) {
       const double altitude = fix ? loc->getAltitude() / 1000.0 : sensors.node_altitude;
@@ -197,12 +198,12 @@ private:
       row(d, f, rsv, "Altitude", a);
     }
     if (g && fix) {
-      if (imperial()) snprintf(a, sizeof(a), "%.0f mph", g->speed_kmh * 0.621371f);
-      else            snprintf(a, sizeof(a), "%.0f km/h", g->speed_kmh);
+      if (imperial()) { fixedfmt::format(a, sizeof(a), g->speed_kmh * 0.621371f, 0); strncat(a, " mph", sizeof(a) - strlen(a) - 1); }
+      else { fixedfmt::format(a, sizeof(a), g->speed_kmh, 0); strncat(a, " km/h", sizeof(a) - strlen(a) - 1); }
       row(d, f, rsv, "Speed", a);
     }
     if (g) {
-      if (g->hdop > 0 && g->hdop < 99) snprintf(a, sizeof(a), "%.1f", g->hdop); else strcpy(a, "-");
+      if (g->hdop > 0 && g->hdop < 99) fixedfmt::format(a, sizeof(a), g->hdop, 1); else strcpy(a, "-");
       row(d, f, rsv, "HDOP", a);
       if (g->ttff_ms)       snprintf(a, sizeof(a), "%lu s", (unsigned long)(g->ttff_ms / 1000));
       else if (on && g->start_ms) {

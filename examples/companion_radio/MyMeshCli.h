@@ -9,6 +9,9 @@
 // (ui-core/SettingsCli.h), the same rows its Settings screen shows.
 // No factory reset or key export here: those stay on the device.
 
+#include "ui-core/FixedFormat.h"
+#include "helpers/TxtDataHelpers.h"
+
 static bool cliOnOff(const char* v) { return strncmp(v, "on", 2) == 0 || strcmp(v, "1") == 0; }
 
 bool MyMesh::handleCliCommand(const char* command, char* reply, int n) {
@@ -120,11 +123,17 @@ bool MyMesh::handleCliCommand(const char* command, char* reply, int n) {
   }
 #endif
   // The position adverts carry while the GPS is off (Settings > Privacy > Position).
-  if (strcmp(command, "get lat") == 0) { snprintf(reply, n, "> %.6f", sensors.node_lat); return true; }
-  if (strcmp(command, "get lon") == 0) { snprintf(reply, n, "> %.6f", sensors.node_lon); return true; }
+  if (strcmp(command, "get lat") == 0) {
+    char value[20]; fixedfmt::format(value, sizeof(value), sensors.node_lat, 6);
+    snprintf(reply, n, "> %s", value); return true;
+  }
+  if (strcmp(command, "get lon") == 0) {
+    char value[20]; fixedfmt::format(value, sizeof(value), sensors.node_lon, 6);
+    snprintf(reply, n, "> %s", value); return true;
+  }
   if (memcmp(command, "set lat ", 8) == 0 || memcmp(command, "set lon ", 8) == 0) {
     char* end;
-    double v = strtod(&command[8], &end);
+    double v = StrHelper::parseDouble(&command[8], &end);
     bool lat = command[6] == 't';
     if (end == &command[8] || *end || (lat ? (v < -90 || v > 90) : (v < -180 || v > 180))) { snprintf(reply, n, "Error, bad coordinate"); return true; }
     (lat ? sensors.node_lat : sensors.node_lon) = v;
@@ -147,8 +156,8 @@ bool MyMesh::cliRadioCommand(const char* command, char* reply, int n) {
   }
   if (memcmp(command, "set radio ", 10) == 0) {
     char* p = (char*)&command[10];   // "freq,bw,sf,cr" (strtof: no float scanf on every libc)
-    float freq = strtof(p, &p);
-    float bw = *p == ',' ? strtof(p + 1, &p) : 0;
+    float freq = StrHelper::parseFloat(p, &p);
+    float bw = *p == ',' ? StrHelper::parseFloat(p + 1, &p) : 0;
     int sf = *p == ',' ? (int)strtol(p + 1, &p, 10) : 0;
     int cr = *p == ',' ? (int)strtol(p + 1, &p, 10) : 0;
     if (freq >= 150.0f && freq <= 2500.0f && sf >= 5 && sf <= 12 && cr >= 5 && cr <= 8 && bw >= 7.0f && bw <= 500.0f) {
@@ -166,7 +175,7 @@ bool MyMesh::cliRadioCommand(const char* command, char* reply, int n) {
   if (strcmp(command, "get af") == 0) { snprintf(reply, n, "> %s", StrHelper::ftoa(_prefs.airtime_factor)); return true; }
   if (memcmp(command, "set af ", 7) == 0) {
     char* end;
-    float af = strtof(&command[7], &end);
+    float af = StrHelper::parseFloat(&command[7], &end);
     if (end == &command[7] || !(af >= 0 && af <= 9)) snprintf(reply, n, "ERROR: af must be 0-9");
     else { _prefs.airtime_factor = af; savePrefs(); snprintf(reply, n, "OK"); }
     return true;
@@ -177,7 +186,7 @@ bool MyMesh::cliRadioCommand(const char* command, char* reply, int n) {
     return true;
   }
   if (memcmp(command, "set dutycycle ", 14) == 0) {
-    float dc = atof(&command[14]);
+    float dc = StrHelper::parseFloat(&command[14]);
     if (!(dc >= 1 && dc <= 100))   // written so "nan" fails too { snprintf(reply, n, "ERROR: dutycycle must be 1-100"); return true; }
     _prefs.airtime_factor = 100.0f / dc - 1.0f;
     savePrefs();
@@ -226,7 +235,7 @@ bool MyMesh::cliRadioCommand(const char* command, char* reply, int n) {
   }
   if (strcmp(command, "get rxdelay") == 0) { snprintf(reply, n, "> %s", StrHelper::ftoa(_prefs.rx_delay_base)); return true; }
   if (memcmp(command, "set rxdelay ", 12) == 0) {
-    float d = atof(&command[12]);
+    float d = StrHelper::parseFloat(&command[12]);
     if (!(d >= 0 && d <= 20.0f)) snprintf(reply, n, "Error, must be 0-20");
     else { _prefs.rx_delay_base = d; savePrefs(); snprintf(reply, n, "OK"); }
     return true;
@@ -235,7 +244,7 @@ bool MyMesh::cliRadioCommand(const char* command, char* reply, int n) {
   if (strcmp(command, "get direct.txdelay") == 0) { snprintf(reply, n, "> %s", StrHelper::ftoa(_prefs.direct_tx_delay_factor)); return true; }
   if (memcmp(command, "set txdelay ", 12) == 0 || memcmp(command, "set direct.txdelay ", 19) == 0) {
     const bool direct = command[4] == 'd';
-    float f = atof(&command[direct ? 19 : 12]);
+    float f = StrHelper::parseFloat(&command[direct ? 19 : 12]);
     if (!(f >= 0 && f <= 2.0f)) { snprintf(reply, n, "Error, must be 0-2"); return true; }
     (direct ? _prefs.direct_tx_delay_factor : _prefs.tx_delay_factor) = f;
     savePrefs();
