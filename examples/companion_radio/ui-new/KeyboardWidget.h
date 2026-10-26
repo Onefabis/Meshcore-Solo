@@ -176,6 +176,30 @@ static void kbApplyCapsUtf8(const char* in, bool caps, char* out, size_t out_siz
   out[o] = '\0';
 }
 
+// CardKB has Latin QWERTY keycaps. Translate those physical keys when the
+// selected external script is Cyrillic or Greek; punctuation remains unchanged.
+static const char* const KB_CARDKB_LAYOUT_KEYS = "`qwertyuiop[]asdfghjkl;'zxcvbnm,./";
+static const char* const KB_CARDKB_CYRILLIC_VALUES[] = {
+  "ё", "й", "ц", "у", "к", "е", "н", "г", "ш", "щ", "з", "х", "ъ",
+  "ф", "ы", "в", "а", "п", "р", "о", "л", "д", "ж", "э", "я", "ч",
+  "с", "м", "и", "т", "ь", "б", "ю", "."
+};
+static const char* const KB_CARDKB_GREEK_VALUES[] = {
+  "`", ";", "ς", "ε", "ρ", "τ", "υ", "θ", "ι", "ο", "π", "[", "]",
+  "α", "σ", "δ", "φ", "γ", "η", "ξ", "κ", "λ", ";", "'", "ζ", "χ",
+  "ψ", "ω", "β", "ν", "μ", ",", ".", "/"
+};
+
+static const char* kbCardkbMappedGlyph(uint8_t script, char c) {
+  const char* const* values = nullptr;
+  if (script == NodePrefs::KB_ALPHABET_CYRILLIC) values = KB_CARDKB_CYRILLIC_VALUES;
+  else if (script == NodePrefs::KB_ALPHABET_GREEK) values = KB_CARDKB_GREEK_VALUES;
+  else return nullptr;
+  for (size_t i = 0; KB_CARDKB_LAYOUT_KEYS[i] != '\0'; i++)
+    if (KB_CARDKB_LAYOUT_KEYS[i] == c) return values[i];
+  return nullptr;
+}
+
 // Codepoint count of a UTF-8 string (byte length overcounts once a 2-byte
 // alphabet is involved — this is what T9 cycling needs instead of strlen()).
 static int kbUtf8Len(const char* s) {
@@ -325,6 +349,8 @@ struct KeyboardWidget {
   // that construct a KeyboardWidget standalone, in which case isT9() defaults
   // to ABC and mainScript()/altScript() default to Latin-only.
   NodePrefs* prefs = nullptr;
+  // External CardKB input starts in Main and toggles with Fn+Backspace.
+  uint8_t external_script = NodePrefs::KB_ALPHABET_LATIN_ONLY;
   bool isT9() const { return _physical_t9_input || (prefs && prefs->keyboard_type == 1); }
   bool isPin() const { return pin_mode; }
   // Which script occupies page 0 (the keyboard's default/opening page) and
@@ -335,6 +361,20 @@ struct KeyboardWidget {
   uint8_t mainScript() const { return prefs ? prefs->keyboard_main_alphabet : NodePrefs::KB_ALPHABET_LATIN_ONLY; }
   uint8_t altScript()  const { return prefs ? prefs->keyboard_alt_alphabet  : NodePrefs::KB_ALPHABET_LATIN_ONLY; }
   bool hasAltAlphabet() const { return altScript() != mainScript(); }
+  uint8_t externalScript() const { return external_script; }
+  const char* externalScriptLabel() const { return NodePrefs::keyboardAlphabetLabel(external_script); }
+  void resetExternalScript() { external_script = mainScript(); }
+  bool toggleExternalScript() {
+    const uint8_t main = mainScript();
+    const uint8_t alt = altScript();
+    if (main == alt) { external_script = main; return false; }
+    if (external_script != main && external_script != alt) external_script = main;
+    else external_script = external_script == main ? alt : main;
+    if (!_visible || pageIsSymbols(page)) return true;
+    page = external_script == main ? 0 : 1;
+    t9_cell = -1;
+    return true;
+  }
 
   // T9 multi-tap state: which grid cell is mid-cycle (-1 = none), its cycle
   // position, and when the last Enter landed on it (for the timeout).
@@ -438,6 +478,7 @@ struct KeyboardWidget {
     page = 0;
     caps = false;
     caps_lock = false;
+    resetExternalScript();
     pin_kb_mask_enabled = false;
     pin_mode = false;
     prompt = nullptr;
@@ -482,26 +523,18 @@ struct KeyboardWidget {
     }
   }
 
-  // Insert one character typed literally on an external keyboard (CardKB or
-  // similar), as opposed to committed off the on-screen grid. The source
-  // already sends the correct case, so no Shift/caps-lock is re-applied.
-  //
-  // This is the single translation point for external-keyboard input: today
-  // it's the identity mapping (CardKB is a Latin QWERTY, so what it sends is
-  // what gets typed, regardless of the on-screen grid's script/T9 settings --
-  // those only govern grid navigation). To support relabelled keycaps
-  // (Cyrillic/Greek/...) later, map `c` to that layout's codepoint here and
-  // hand the resulting UTF-8 to insertGlyph() -- everything downstream already
-  // works in codepoints, not bytes. Such a layout belongs on its own setting,
-  // not on keyboard_main_alphabet: it describes the physical keycaps, which
-  // are independent of what the on-screen grid shows. Digits/punctuation
-  // should keep passing through unmapped, and Fn+letter accents
-  // (openAccentFor()) stay Latin-only -- they're meaningless under non-Latin
-  // keycaps.
+  // Insert one character typed literally on an external keyboard, translating
+  // the physical Latin QWERTY key according to the selected script.
   void insertTyped(char c) {
     t9_cell = -1;   // otherwise a same-cell T9 tap within KB_T9_TIMEOUT_MS would
                     // overwrite this character instead of inserting a new one
-    char one[2] = { c, '\0' };
+    char one[5] = { c, '\0', '\0', '\0', '\0' };
+    if (external_script != NodePrefs::KB_ALPHABET_LATIN_ONLY) {
+      const bool upper = c >= 'A' && c <= 'Z';
+      const char lower = upper ? (char)(c + ('a' - 'A')) : c;
+      const char* mapped = kbCardkbMappedGlyph(external_script, lower);
+      if (mapped) kbApplyCapsUtf8(mapped, upper, one, sizeof(one));
+    }
     insertGlyph(one, false);
   }
 

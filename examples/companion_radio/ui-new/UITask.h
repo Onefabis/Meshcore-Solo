@@ -227,6 +227,9 @@ private:
   static const uint8_t CARDKB_Q_LEN = 16;
   uint8_t  _cardkb_q[CARDKB_Q_LEN];
   volatile uint8_t _cardkb_q_head = 0, _cardkb_q_tail = 0;   // shared with the poll task
+  static const uint32_t CARDKB_FN_SEQUENCE_TIMEOUT_MS = 700;
+  bool _cardkb_fn_pending = false;
+  uint32_t _cardkb_fn_pending_since = 0;
   bool readCardKBEdge(uint8_t& raw);   // one I2C read + debounce; true on a new keypress
   bool probeCardKB();                  // ACK probe used at boot and after a transient disconnect
   void cardkbQueuePush(uint8_t raw);   // add a sampled key to _cardkb_q (drops if full)
@@ -249,6 +252,7 @@ private:
   void handleSimpsonKeypadKey(uint8_t key);
 #endif
   void handleCardKBByte(uint8_t raw);
+  void toggleCardKBScript();
   void setCardKBBackground(bool on);   // no-op without CardKB / the poll task
   void startCardKBCapture();           // end of begin(): start the poll task
 
