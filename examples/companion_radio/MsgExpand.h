@@ -4,6 +4,7 @@
 #include <ctime>
 #include <cstdint>
 #include <helpers/SensorManager.h>
+#include "LocalSensors.h"
 #include "NodePrefs.h"   // localTm()
 #include <helpers/sensors/LPPDataHelpers.h>
 #include "ui-core/FixedFormat.h"
