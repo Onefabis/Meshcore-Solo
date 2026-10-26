@@ -60,14 +60,14 @@
 
 #define PIN_SPI_NSS          (5)
 
-#define PIN_SPI1_SCK         (5)
+#define PIN_SPI1_SCK         (18)
 #define PIN_SPI1_MISO        (17)
-#define PIN_SPI1_MOSI        (0)
+#define PIN_SPI1_MOSI        (20)
 
 #define PIN_TFT_SCL          PIN_SPI1_SCK
 #define PIN_TFT_SDA          PIN_SPI1_MOSI
 #define PIN_TFT_MISO         PIN_SPI1_MISO
-#define PIN_TFT_CS           (1)
+#define PIN_TFT_CS           (19)
 #define PIN_TFT_DC           (9)
 #define PIN_TFT_RST          (3)
 #define PIN_TFT_VDD_CTL      (-1)
@@ -91,9 +91,9 @@
 #define BUTTON_PIN           PIN_BUTTON1
 
 // Optional rotary encoder: quadrature A/B plus an integrated push button.
-#define PIN_ENCODER_A        (18)
-#define PIN_ENCODER_B        (19)
-#define PIN_ENCODER_PRESS    (20)
+#define PIN_ENCODER_A        (0)
+#define PIN_ENCODER_B        (1)
+#define PIN_ENCODER_PRESS    (5)
 
 //////////////////////////////////////////////////////////////////////////////
 // LoRa
