@@ -42,7 +42,15 @@ static uint32_t _atoi(const char* sp) {
   #include <InternalFileSystem.h>
   #if defined(QSPIFLASH)
     #include <CustomLFS_QSPIFlash.h>
-    DataStore store(InternalFS, QSPIFlash, rtc_clock);
+    #ifdef ZYGIS_EINK_PORTRAIT
+      // The Wio linker already reserves D4000..ECFFF outside the app.
+      // Use that area for identity and settings when the bootloader's
+      // InternalFS area cannot retain writes across a reset.
+      CustomLFS portraitPrefsFS(0xD4000, 0x19000, 128);
+      DataStore store(portraitPrefsFS, QSPIFlash, rtc_clock);
+    #else
+      DataStore store(InternalFS, QSPIFlash, rtc_clock);
+    #endif
   #else
     #if defined(EXTRAFS)
       #include <CustomLFS.h>
@@ -258,9 +266,16 @@ void setup() {
   fast_rng.begin(radio_driver.getRngSeed());
 
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
+  #ifdef ZYGIS_EINK_PORTRAIT
+  portraitPrefsFS.begin();
+  #else
   InternalFS.begin();
+  #endif
   #if defined(QSPIFLASH)
     if (!QSPIFlash.begin()) {
+      #ifdef ZYGIS_EINK_PORTRAIT
+      store.usePrimaryForBulkStorage();
+      #endif
       // debug output might not be available at this point, might be too early. maybe should fall back to InternalFS here?
       MESH_DEBUG_PRINTLN("CustomLFS_QSPIFlash: failed to initialize");
     } else {

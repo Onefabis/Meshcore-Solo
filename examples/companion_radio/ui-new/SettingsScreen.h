@@ -50,6 +50,11 @@ class SettingsScreen : public UIScreen {
     TX_APC,
     SCOPE_NAME,
     SCHEMA_RADIO,     // the advanced radio options
+#ifdef PRIVATE_STATUS_REPORTER
+    SECTION_TRACKING,
+    TRACKING_ENABLED, TRACKING_CHANNEL, TRACKING_INTERVAL, TRACKING_GPS,
+    TRACKING_SEND, TRACKING_VERIFY,
+#endif
     // System section
     SECTION_SYSTEM,
     DEVICE_NAME,
@@ -98,7 +103,36 @@ class SettingsScreen : public UIScreen {
   bool _keep_place = false;   // set when opening a screen from a row, so Back lands on it
 
   AccordionList _acc;
+#ifdef PRIVATE_STATUS_REPORTER
+  static const int NUM_SECTIONS = 10;
+  bool _tracking_edit_interval = false;
+  PopupMenu _tracking_channels;
+  char _tracking_labels[12][40];
+  int8_t _tracking_slots[12];
+  uint8_t _tracking_page = 0;
+
+  void trackingAction(const char* command) {
+    char reply[160];
+    the_mesh.runTrackingCommand(command, reply);
+    _task->showAlert(reply, 2500);
+  }
+  void openTrackingChannels() {
+    _tracking_channels.begin("Private channel");
+    int row = 0;
+    for (unsigned slot = _tracking_page * 10; slot < (_tracking_page + 1) * 10 && slot < MAX_GROUP_CHANNELS; ++slot) {
+      if (!the_mesh.isPrivateTrackingChannel(slot)) continue;
+      ChannelDetails ch; the_mesh.getChannel(slot, ch);
+      snprintf(_tracking_labels[row], sizeof(_tracking_labels[row]), "%u: %.31s", slot, ch.name);
+      _tracking_slots[row] = slot;
+      _tracking_channels.addItem(_tracking_labels[row++]);
+    }
+    if (!row) { _tracking_slots[row++] = -3; _tracking_channels.addItem("No private channels"); }
+    if (_tracking_page > 0) { _tracking_slots[row++] = -2; _tracking_channels.addItem("Previous page"); }
+    if ((_tracking_page + 1) * 10 < MAX_GROUP_CHANNELS) { _tracking_slots[row++] = -1; _tracking_channels.addItem("Next page"); }
+  }
+#else
   static const int NUM_SECTIONS = 9;
+#endif
   static const int MAX_PER_SEC  = 20;
   uint8_t _sec_items[NUM_SECTIONS][MAX_PER_SEC]; // SettingItem per (section, row)
   uint8_t _sec_count[NUM_SECTIONS];
@@ -147,7 +181,11 @@ class SettingsScreen : public UIScreen {
 
 
   bool isSection(int item) const {
-    return item == SECTION_DISPLAY || item == SECTION_SOUND ||
+    return
+#ifdef PRIVATE_STATUS_REPORTER
+           item == SECTION_TRACKING ||
+#endif
+           item == SECTION_DISPLAY || item == SECTION_SOUND ||
            item == SECTION_HOME_PAGES ||
            item == SECTION_RADIO   || item == SECTION_SYSTEM ||
            item == SECTION_KEYBOARD ||
@@ -156,6 +194,9 @@ class SettingsScreen : public UIScreen {
   }
 
   const char* sectionName(int item) const {
+#ifdef PRIVATE_STATUS_REPORTER
+    if (item == SECTION_TRACKING) return "Tracking";
+#endif
     if (item == SECTION_DISPLAY)    return "Display";
     if (item == SECTION_SOUND)      return "Sound";
     if (item == SECTION_HOME_PAGES) return "Home Pages";
@@ -488,6 +529,23 @@ class SettingsScreen : public UIScreen {
     drawRowSelection(display, y, sel, _reserve);
     display.setCursor(2, y);
 
+#ifdef PRIVATE_STATUS_REPORTER
+    if (item >= TRACKING_ENABLED && item <= TRACKING_VERIFY) {
+      const char* labels[] = {"Enabled", "Channel", "Interval", "GPS state", "Report now", "Check channel"};
+      display.print(labels[item - TRACKING_ENABLED]);
+      display.setCursor(valCol(display), y);
+      char value[40]; value[0] = 0;
+      if (item == TRACKING_ENABLED) strcpy(value, p && p->gps_enabled ? "ON" : "OFF");
+      if (item == TRACKING_CHANNEL) {
+        if (the_mesh.trackingChannel() == 255) strcpy(value, "Not set");
+        else snprintf(value, sizeof(value), "%u %.24s", the_mesh.trackingChannel(), the_mesh.trackingChannelName());
+      }
+      if (item == TRACKING_INTERVAL) snprintf(value, sizeof(value), "%lu sec", (unsigned long)the_mesh.trackingInterval());
+      if (item == TRACKING_GPS) strcpy(value, the_mesh.trackingAcquiring() ? "Acquiring" : "Asleep");
+      display.print(value);
+      return 0;
+    }
+#endif
     if (item >= SCHEMA_ITEM) {
       mq = renderSchema(display, settings::ALL[item - SCHEMA_ITEM], p, y, sel);
     } else if (item == BUZZER) {
@@ -721,6 +779,10 @@ public:
     const bool keep = _keep_place;   // back from a screen opened here: same row
     _keep_place = false;
     _task->savePrefsIfDirty(_dirty);   // a change made before a screen opened from here
+#ifdef PRIVATE_STATUS_REPORTER
+    _tracking_edit_interval = false;
+    _tracking_channels.active = false;
+#endif
     _edit_name = false;
     _scope_mgmt_active = false;
     _scope_rename_idx = -2;
@@ -742,7 +804,11 @@ public:
   int render(DisplayDriver& display) override {
     display.setTextSize(1);
 
-    if (_edit_slot >= 0 || _edit_name || _edit_lock_pass || _edit_pos || _edit_ble_pin || _scope_rename_idx != -2 || _picker.saving) {
+    if (_edit_slot >= 0 || _edit_name || _edit_lock_pass || _edit_pos || _edit_ble_pin || _scope_rename_idx != -2 || _picker.saving
+#ifdef PRIVATE_STATUS_REPORTER
+        || _tracking_edit_interval
+#endif
+    ) {
       return _kb->render(display);
     }
 
@@ -768,6 +834,9 @@ public:
         if (r > 0) mq_delay = r;
       });
 
+#ifdef PRIVATE_STATUS_REPORTER
+    if (_tracking_channels.active) _tracking_channels.render(display);
+#endif
     if (_picker.menu.active) _picker.menu.render(display);
     if (_prune_confirm.active) _prune_confirm.render(display);
     if (_pos_menu.active) _pos_menu.render(display);
@@ -794,6 +863,30 @@ public:
   bool handleInput(char c) override {
     NodePrefs* p = _task->getNodePrefs();
 
+#ifdef PRIVATE_STATUS_REPORTER
+    if (_tracking_edit_interval) {
+      auto result = _kb->handleInput(c);
+      if (result == KeyboardWidget::DONE) {
+        // Limit input before constructing the shared parser command.
+        char command[80];
+        snprintf(command, sizeof(command), "status interval %.10s", _kb->buf);
+        trackingAction(command);
+        _tracking_edit_interval = false;
+      } else if (result == KeyboardWidget::CANCELLED) _tracking_edit_interval = false;
+      return true;
+    }
+    if (_tracking_channels.active) {
+      auto result = _tracking_channels.handleInput(c);
+      if (result == PopupMenu::SELECTED) {
+        int slot = _tracking_slots[_tracking_channels.selectedIndex()];
+        if (slot == -1) { ++_tracking_page; openTrackingChannels(); }
+        else if (slot == -2) { --_tracking_page; openTrackingChannels(); }
+        else if (slot >= 0) { char command[40]; snprintf(command, sizeof(command), "status channel %d", slot); trackingAction(command); }
+        else _task->showAlert("Create a private channel in the app", 2500);
+      }
+      return true;
+    }
+#endif
     // Keyboard editing mode for message slots
     if (_edit_slot >= 0) {
       auto res = _kb->handleInput(c);
@@ -1110,6 +1203,19 @@ public:
     bool left  = keyIsPrev(c);
     bool enter = (c == KEY_ENTER);
 
+#ifdef PRIVATE_STATUS_REPORTER
+    if (_selected == TRACKING_ENABLED && (enter || left || right)) {
+      trackingAction(p && p->gps_enabled ? "gps off" : "gps on"); return true;
+    }
+    if (_selected == TRACKING_CHANNEL && enter) { _tracking_page = 0; openTrackingChannels(); return true; }
+    if (_selected == TRACKING_INTERVAL && enter) {
+      char seconds[12]; snprintf(seconds, sizeof(seconds), "%lu", (unsigned long)the_mesh.trackingInterval());
+      _tracking_edit_interval = true; _kb->begin(seconds, 5); _kb->clearPlaceholders(); return true;
+    }
+    if (_selected == TRACKING_SEND && enter) { trackingAction("status send"); return true; }
+    if (_selected == TRACKING_VERIFY && enter) { trackingAction("verify"); return true; }
+    if (_selected == TRACKING_GPS && enter) { trackingAction("gps status"); return true; }
+#endif
     if (_selected >= SCHEMA_ITEM) {
       if (!p || !(left || right || enter)) return false;
       const settings::Setting& st = settings::ALL[_selected - SCHEMA_ITEM];

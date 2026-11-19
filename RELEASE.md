@@ -1,17 +1,32 @@
-# Releasing Solo firmware
+# Preparing a Žygis release
 
-1. Add the notes for the new version at the top of `release-notes.md`.
-2. Push a `v*` tag (e.g. `v1.29`). [Build Solo Firmwares](./.github/workflows/build-solo-firmwares.yml)
-   builds every `*_solo_dual` and `*_solo_lvgl` environment in `solo/` with
-   `FIRMWARE_VERSION` set to the tag and opens a **draft** release with:
-   - `.uf2` + `-ota.zip` (DFU package) for nRF52 boards;
-   - `-merged.bin` (flash at `0x0`) for ESP32 boards;
-   - `-ota.bin` (app image) for the `*_solo_lvgl` boards — what their
-     Settings › System › Firmware update downloads.
-3. Paste the notes into the draft and publish it. Only a published,
-   non-prerelease release is what devices and the website see as the latest:
-   the on-device update reads `releases/latest`, and the website's simulator
-   is refreshed from its `solo-sim-wasm.zip` ([Build Solo Sim](./.github/workflows/build-solo-sim.yml)).
+The current project is a source/community preview. Do not present successful
+host tests or firmware builds as physical-device validation.
 
-The upstream `companion-v*`, `repeater-v*` and `room-server-v*` tags still
-build the stock firmwares through their own workflows.
+1. Confirm the changelog, roadmap, setup guide and tested-device matrix reflect
+   the candidate commit. Include known limitations and migration instructions.
+2. Run the `Žygis checks` workflow on the release commit. Both firmware targets
+   and host checks must pass.
+3. Record on-device results for each included target. Verify the M5 partition
+   migration, GPS acquisition/sleep, persistence, controls, audio and LEDs.
+4. Review the licenses of all distributed dependencies. The pinned T-Echo Lite
+   ES8311 dependency declares AGPL-3.0; the upstream MIT license does not cover
+   every binary component. Resolve distribution requirements before attaching
+   builds and preserve required notices/source availability.
+5. Use a Žygis-specific tag, e.g. `zygis-v0.1.0-preview.1`, after choosing an
+   actual version. Create a draft release with the exact build SHA, environments,
+   flashing instructions, checksums and known limitations.
+6. Publish only the reviewed artifacts and notes. Use clear device-specific
+   filenames; distinguish full ESP32 images from application-only OTA images.
+
+Inherited Solo/MeshCore release workflows are manual in this fork. The standard
+CI does not create tags, publish releases, upload firmware, or deploy Pages.
+
+Run **Build Žygis release artifacts** manually from GitHub Actions on the
+candidate ref. It builds each environment in `solo/zygis/platformio.ini` and
+uploads a separate artifact with a commit manifest and SHA-256 checksums.
+Firmware images are available for manual release review. The workflow does
+not create a release or tag. Diagnostic environments are named `*_test`.
+
+To build and package an environment locally, run
+`python3 scripts/zygis_release.py WioTrackerL1_zygis`.

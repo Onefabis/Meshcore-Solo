@@ -17,7 +17,16 @@
 
 namespace chanctl {
 
-enum Result : uint8_t { OK, FULL, NO_NAME, NO_SECRET, BAD_SECRET, EXISTS, FAILED };
+enum Result : uint8_t { OK, FULL, NO_NAME, NO_SECRET, BAD_SECRET, EXISTS, FAILED, TRACKING_LOCKED };
+
+static inline bool trackingLocked(int idx) {
+#ifdef PRIVATE_STATUS_REPORTER
+  return idx >= 0 && idx < MAX_GROUP_CHANNELS && idx == the_mesh.trackingChannel();
+#else
+  (void)idx;
+  return false;
+#endif
+}
 
 // A channel's name without the '#' a hashtag channel's starts with -- for a
 // label that puts its own '#' in front (as ui-new's tiles do), never "##test".
@@ -31,6 +40,7 @@ static const char* resultText(Result r) {
     case NO_SECRET:  return "Secret required";
     case BAD_SECRET: return "Secret must be 32 hex characters";
     case EXISTS:     return "Channel already exists";
+    case TRACKING_LOCKED: return "Tracking channel locked";
     default:         return "Save failed";
   }
 }
@@ -39,6 +49,7 @@ static const char* resultText(Result r) {
 static int freeSlot() {
   for (int i = 0; i < MAX_GROUP_CHANNELS; i++) {
     ChannelDetails ch;
+    if (trackingLocked(i)) continue;
     if (!the_mesh.getChannel(i, ch) || ch.name[0] == '\0') return i;
   }
   return -1;
@@ -95,6 +106,7 @@ static bool secretInUse(const uint8_t secret[32], int except_idx) {
 
 static Result save(int idx, const char* name, const uint8_t secret[32]) {
   if (idx < 0) return FULL;
+  if (trackingLocked(idx)) return TRACKING_LOCKED;
   if (!name || !name[0]) return NO_NAME;
   if (secretInUse(secret, idx)) return EXISTS;
   ChannelDetails ch;
@@ -156,7 +168,7 @@ static bool secretHex(int idx, char out[33]) {
 
 // Delete: an all-zero slot; setChannelLocal() then runs onChannelRemoved().
 static bool remove(int idx) {
-  if (idx < 0 || idx >= MAX_GROUP_CHANNELS) return false;
+  if (idx < 0 || idx >= MAX_GROUP_CHANNELS || trackingLocked(idx)) return false;
   ChannelDetails ch;
   memset(&ch, 0, sizeof(ch));
   return the_mesh.setChannelLocal((uint8_t)idx, ch);

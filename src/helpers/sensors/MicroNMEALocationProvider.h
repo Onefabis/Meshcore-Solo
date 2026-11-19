@@ -127,6 +127,10 @@ public :
         // last stop() still reads valid, and the GPS duty cycle put the receiver
         // back to sleep a tick after waking it, before any new position came in.
         nmea.clear();
+#ifdef PRIVATE_STATUS_REPORTER
+        drain();
+        _fix_seen = false;
+#endif
         _begin_calls++;
         claim();
         if (_pin_en != -1) {
@@ -300,6 +304,11 @@ public:
         }
     }
 
+#ifdef PRIVATE_STATUS_REPORTER
+    bool hasFreshFix(uint32_t max_age_ms) override {
+        return _fix_seen && isValid() && millis() - _last_fix_ms <= max_age_ms;
+    }
+#endif
     void formatDiagnostics(char* out, size_t out_size) override {
         if (out_size == 0) return;
 

@@ -1,4 +1,8 @@
 #include "MyMesh.h"
+#ifdef PRIVATE_STATUS_REPORTER
+#include "TrackerProtocol.h"
+#include "TrackerAudio.h"
+#endif
 #include "MsgExpand.h"
 #include "ui-core/BotCommands.h"
 #include "GeoUtils.h"
@@ -792,6 +796,9 @@ void MyMesh::onSignedMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uin
 
 void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packet *pkt, uint32_t timestamp,
                                   const char *text) {
+#ifdef PRIVATE_STATUS_REPORTER
+  handleTrackerMessage(channel, pkt, text);
+#endif
   int i = 0;
   if (app_target_ver >= 3) {
     out_frame[i++] = RESP_CODE_CHANNEL_MSG_RECV_V3;
@@ -813,6 +820,19 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
     return;
   }
   uint8_t channel_idx = (uint8_t)idx;
+#ifdef SOLO_GAMES_ENABLED
+  if (_listener) {
+    const char* body = strstr(text, ": ");
+    if (body && (!strncmp(body + 2, "~G1:", 4) || !strncmp(body + 2, "~M1:", 4))) {
+      char sender[40];
+      size_t length = size_t(body - text);
+      if (length >= sizeof(sender)) length = sizeof(sender) - 1;
+      memcpy(sender, text, length);
+      sender[length] = 0;
+      _listener->onGameChannelText(channel_idx, body + 2, sender);
+    }
+  }
+#endif
   out_frame[i++] = channel_idx;
   uint8_t path_len = out_frame[i++] = pkt->isRouteFlood() ? pkt->path_len : 0xFF;
 
@@ -858,6 +878,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
     noteSos(nullptr, sender, msg, false);
   }
 
+#ifndef PRIVATE_STATUS_REPORTER
   // hop count for !hops (see onMessageRecv); not the wire path_len above.
   uint8_t ch_hops = pkt->getPathHashCount();
   if (botChSlotFor(channel_idx) >= 0) {   // a bot's channel: who's asking
@@ -868,6 +889,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
   }
   if (!tryBotChannelCommand(channel_idx, text, ch_hops))  // commands take priority
     tryBotReplyChannel(channel_idx, text, ch_hops);
+#endif
 }
 
 void MyMesh::onChannelDataRecv(const mesh::GroupChannel &channel, mesh::Packet *pkt, uint16_t data_type,
@@ -939,6 +961,10 @@ uint8_t MyMesh::onContactRequest(const ContactInfo &contact, uint32_t sender_tim
 
     uint8_t perm_mask = ~(data[1]);    // NEW: first reserved byte (of 4), is now inverse mask to apply to permissions
     permissions &= perm_mask;
+#ifdef PRIVATE_STATUS_REPORTER
+    permissions &= ~TELEM_PERM_LOCATION;
+#endif
+
 
     if (permissions & TELEM_PERM_BASE) { // only respond if base permission bit is set
       telemetry.reset();
@@ -1199,6 +1225,10 @@ bool MyMesh::onContactPathRecv(ContactInfo& contact, uint8_t* in_path, uint8_t i
 #define CTL_TYPE_NODE_DISCOVER_RESP 0x90
 
 void MyMesh::onControlDataRecv(mesh::Packet *packet) {
+#ifdef PRIVATE_STATUS_REPORTER
+  handleNearbyResponse(packet);
+#endif
+
   // If we have an active standalone discover, check if this is a matching response.
   // Tag matching provides isolation — no isBLEConnected check needed.
   if ((packet->payload[0] & 0xF0) == CTL_TYPE_NODE_DISCOVER_RESP &&
@@ -1572,6 +1602,13 @@ void MyMesh::begin() {
 
   // load persisted prefs
   _store->loadPrefs(_prefs, sensors.node_lat, sensors.node_lon);
+#ifdef PRIVATE_STATUS_REPORTER
+  loadTrackerPrefs();
+  _prefs.advert_loc_policy = ADVERT_LOC_NONE;
+  _prefs.telemetry_mode_loc = TELEM_MODE_DENY;
+  sensors.position_valid = tracker_prefs.status_position_known || sensors.node_lat != 0 || sensors.node_lon != 0;
+#endif
+
   // True only on the first boot after upgrading a device that had the old
   // single Scope field set -- acted on once the channels are loaded, below.
   _store->loadScopeList(_scope_list, _prefs);
@@ -1693,6 +1730,63 @@ bool MyMesh::setChannelLocal(uint8_t idx, const ChannelDetails& ch) {
     _listener->onChannelRemoved(idx);
   return true;
 }
+
+#ifdef SOLO_GAMES_ENABLED
+bool MyMesh::canSendGameMessage() const {
+#ifdef PRIVATE_STATUS_REPORTER
+  // Keep paced tracker replies ahead of games, including between reply sends.
+  if (tracker_reply_count) return false;
+#endif
+  return _mgr->getOutboundTotal() == 0;
+}
+
+bool MyMesh::getGameChannel(uint8_t slot, ChannelDetails& channel, uint8_t digest[16]) {
+#if defined(SOLO_GAMES_ENABLED) && defined(PRIVATE_STATUS_REPORTER)
+  // Exactly the same privacy classification as the existing tracking channel
+  // picker. No tracking binding, origin record or extra confirmation required.
+  if (!getChannel(slot, channel) || privateStatusChannel(channel)) return false;
+  uint8_t hash[32];
+  mesh::Utils::sha256(hash, sizeof(hash), channel.channel.secret, sizeof(channel.channel.secret));
+  memcpy(digest, hash, 16);
+  return true;
+#else
+  return false;
+#endif
+}
+
+#ifdef SOLO_GAME_VEYLITH
+// Separate from radio identity, channels, Solo preferences and GPS trails.
+#ifdef ZYGIS_GAME_TEST_API
+static const char* VEYLITH_FILE="/veytest1";
+static const char* VEYLITH_TMP="/veytest.tmp";
+#else
+static const char* VEYLITH_FILE="/veylith1";
+static const char* VEYLITH_TMP="/veylith.tmp";
+#endif
+int MyMesh::loadVeylith(uint8_t* bytes,size_t size) {
+  File file=_store->openRead(VEYLITH_FILE);
+  if(!file)return -1;
+  if(file.size()!=size){file.close();return -2;}
+  bool ok=file.read(bytes,size)==int(size);file.close();return ok?int(size):-2;
+}
+bool MyMesh::saveVeylith(const uint8_t* bytes,size_t size) {
+  if(size!=437)return false;
+  File file=_store->openWrite(VEYLITH_TMP);if(!file)return false;
+  bool ok=file.write(bytes,size)==size;file.close();
+  if(!ok){_store->removeFile(VEYLITH_TMP);return false;}
+  return _store->commitFile(VEYLITH_TMP,VEYLITH_FILE);
+}
+bool MyMesh::backupVeylith() {
+  File old=_store->openRead(VEYLITH_FILE);if(!old)return false;
+  File copy=_store->openWrite("/veylith.bad.tmp");if(!copy){old.close();return false;}
+  uint8_t buffer[64];bool ok=true;
+  while(old.available()){int n=old.read(buffer,sizeof(buffer));if(n<=0 || copy.write(buffer,n)!=size_t(n)){ok=false;break;}}
+  old.close();copy.close();
+  if(!ok){_store->removeFile("/veylith.bad.tmp");return false;}
+  return _store->commitFile("/veylith.bad.tmp","/veylith.bad");
+}
+#endif
+#endif
 
 void MyMesh::handleCmdFrame(size_t len) {
   if (cmd_frame[0] == CMD_DEVICE_QUERY && len >= 2) { // sent when app establishes connection
@@ -1935,6 +2029,10 @@ void MyMesh::handleCmdFrame(size_t len) {
     if (lat <= 90 * 1E6 && lat >= -90 * 1E6 && lon <= 180 * 1E6 && lon >= -180 * 1E6) {
       sensors.node_lat = ((double)lat) / 1000000.0;
       sensors.node_lon = ((double)lon) / 1000000.0;
+#ifdef PRIVATE_STATUS_REPORTER
+      sensors.position_valid = true;
+#endif
+
       savePrefs();
       writeOKFrame();
     } else {
@@ -2763,7 +2861,7 @@ void MyMesh::handleCmdFrame(size_t len) {
     char* reply = (char*)&out_frame[1];
     const int n = MAX_FRAME_SIZE - 1;
     reply[0] = 0;
-    if (!handleCliCommand(text, reply, n)) {
+    if (!handleCliCommand(text, reply, n, true)) {
       size_t at = strlen(reply);   // after an "xx|" prefix, if it had one
       snprintf(reply + at, n - at, "Unknown command");
     }
@@ -2845,7 +2943,7 @@ void MyMesh::checkCLIRescueCmd() {
     cli_command[len - 1] = 0;  // replace newline with C string null terminator
 
     reply_buf[0] = 0;
-    if (handleCommand(cli_command, 0, reply_buf)) {
+    if (handleCliCommand(cli_command, reply_buf, sizeof(reply_buf), true)) {
       // command was handled, print reply output
       Serial.print("  "); Serial.print(reply_buf); Serial.println();
     } else if (strcmp(cli_command, "rebuild") == 0) {
@@ -3000,6 +3098,14 @@ void MyMesh::checkCLIRescueCmd() {
 
 void MyMesh::checkSerialInterface() {
   size_t len = _serial->checkRecvFrame(cmd_frame);
+#ifdef PRIVATE_STATUS_REPORTER
+  char command[80];
+  if (_serial->checkRecvText(command, sizeof(command))) {
+    char reply[160];
+    if (!handleStatusCommand(command, reply)) strcpy(reply, "Error: unknown tracker command; use status help");
+    _serial->writeText(reply);
+  }
+#endif
   if (len > 0) {
     handleCmdFrame(len);
   } else if (_iter_started              // check if our ContactsIterator is 'running'
@@ -3050,6 +3156,9 @@ void MyMesh::loop() {
   }
 
   tickLocFix();
+#ifdef PRIVATE_STATUS_REPORTER
+  trackerLoop();
+#endif
 
   if (_cli_batch && millisHasNowPassed(_batch_until)) endCliBatch();   // the page went quiet mid-batch
 
@@ -3114,7 +3223,11 @@ static double snapToGrid(double v, double step) {
 }
 
 mesh::Packet* MyMesh::createOwnAdvert() {
-  if (_prefs.advert_loc_policy == ADVERT_LOC_NONE
+  if (
+#ifdef PRIVATE_STATUS_REPORTER
+      true ||
+#endif
+      _prefs.advert_loc_policy == ADVERT_LOC_NONE
       || (sensors.node_lat == 0 && sensors.node_lon == 0)) {
     return createSelfAdvert(_prefs.node_name);
   }
@@ -3198,3 +3311,436 @@ bool MyMesh::hasPendingWork() const {
 #include "MyMeshRoutes.h"
 #include "MyMeshBot.h"
 #include "MyMeshCli.h"
+
+#ifdef PRIVATE_STATUS_REPORTER
+void MyMesh::loadTrackerPrefs() {
+  auto file = _store->openRead("/zygis1");
+  if (!file) return;
+  uint8_t data[74];
+  bool valid = file.read(data, sizeof(data)) == sizeof(data);
+  file.close();
+  if (!valid || memcmp(data, "ZYG1", 4)) return;
+  uint32_t seconds = uint32_t(data[4]) | (uint32_t(data[5]) << 8) |
+                     (uint32_t(data[6]) << 16) | (uint32_t(data[7]) << 24);
+  if (seconds > 86400 || (data[8] != 255 && data[8] >= MAX_GROUP_CHANNELS) ||
+      data[9] > 1 || !memchr(data + 10, 0, 32)) return;
+  tracker_prefs.status_interval = seconds;
+  tracker_prefs.status_channel = data[8];
+  tracker_prefs.status_position_known = data[9];
+  // Older records may contain unused nonzero bytes after the name terminator.
+  strncpy(tracker_prefs.status_name, (const char*)data + 10, sizeof(tracker_prefs.status_name));
+  memcpy(tracker_prefs.status_key, data + 42, 32);
+}
+
+void MyMesh::saveTrackerPrefs() {
+  tracker_prefs.status_position_known = sensors.position_valid;
+  uint8_t data[74] = {'Z', 'Y', 'G', '1'};
+  uint32_t seconds = tracker_prefs.status_interval;
+  for (unsigned i = 0; i < 4; ++i) data[4 + i] = uint8_t(seconds >> (8 * i));
+  data[8] = tracker_prefs.status_channel;
+  data[9] = tracker_prefs.status_position_known;
+  // ChannelDetails names are NUL-terminated but not necessarily zero-padded.
+  // Canonicalize the stored name so valid bindings survive a reboot.
+  strncpy((char*)data + 10, tracker_prefs.status_name, sizeof(tracker_prefs.status_name) - 1);
+  memcpy(data + 42, tracker_prefs.status_key, 32);
+  auto file = _store->openWrite("/zygis1.tmp");
+  if (!file) return;
+  bool ok = file.write(data, sizeof(data)) == sizeof(data);
+  file.close();
+  if (ok) _store->commitFile("/zygis1.tmp", "/zygis1");
+}
+
+// Never print the PSK. Also reject public/name-derived keys under renamed slots.
+const char* MyMesh::privateStatusChannel(const ChannelDetails& ch) {
+  static const uint8_t public_key[16] = {0x8b,0x33,0x87,0xe9,0xc5,0xcd,0xea,0x6a,0xc9,0xe5,0xed,0xba,0xa1,0x15,0xcd,0x72};
+  static const uint8_t zero[32] = {};
+  if (!ch.name[0]) return "empty channel";
+  if (ch.name[0] == '#') return "hashtag channel";
+  if (!memcmp(ch.channel.secret, zero, 32)) return "empty key";
+  if (!memcmp(ch.channel.secret, public_key, 16) && !memcmp(ch.channel.secret + 16, zero, 16)) return "Public key";
+  char hashtag[34];
+  snprintf(hashtag, sizeof(hashtag), "#%s", ch.name);
+  uint8_t derived[32];
+  mesh::Utils::sha256(derived, 32, (const uint8_t*)hashtag, strlen(hashtag));
+  if (!memcmp(ch.channel.secret, derived, 16)) return "hashtag-derived key";
+  mesh::Utils::sha256(derived, 32, (const uint8_t*)ch.name, strlen(ch.name));
+  if (!memcmp(ch.channel.secret, derived, 16)) return "name-derived key";
+  return nullptr;
+}
+
+const char* MyMesh::verifyTrackerChannel(ChannelDetails& ch) {
+  if (!getChannel(tracker_prefs.status_channel, ch)) return "select a private channel";
+  const char* error = privateStatusChannel(ch);
+  if (error) return error;
+  if (memcmp(ch.channel.secret, tracker_prefs.status_key, 32) ||
+      strncmp(ch.name, tracker_prefs.status_name, 32)) return "channel changed; select it again";
+  return nullptr;
+}
+
+const char* MyMesh::verifyStatus(ChannelDetails& ch) {
+  const char* error = verifyTrackerChannel(ch);
+  if (error) return error;
+  if (sensors.position_valid && (!isfinite(sensors.node_lat) || !isfinite(sensors.node_lon) ||
+      sensors.node_lat < -90 || sensors.node_lat > 90 ||
+      sensors.node_lon < -180 || sensors.node_lon > 180)) return "invalid known position";
+  return nullptr;
+}
+
+bool MyMesh::trackerReply(const char* text, bool position) {
+  // One help packet fits even with a 31-byte sender name: 99 + 33 = 132.
+  if (strlen(text) > 100 || tracker_reply_count == 24) return false;
+  auto& reply = tracker_replies[(tracker_reply_head + tracker_reply_count) % 24];
+  strcpy(reply.text, text);
+  reply.position = position;
+  ++tracker_reply_count;
+  return true;
+}
+
+void MyMesh::flushTrackerReplies() {
+  if (!tracker_reply_count || (int32_t)(millis() - next_tracker_reply) < 0) return;
+  ChannelDetails ch;
+  if (verifyStatus(ch)) return;
+  auto& reply = tracker_replies[tracker_reply_head];
+#ifdef TECHO_STATUS_LEDS
+  building_status = reply.position;
+#endif
+  bool queued = sendGroupMessage(getRTCClock()->getCurrentTimeUnique(), ch.channel, _prefs.node_name,
+                                 reply.text, strlen(reply.text));
+#ifdef TECHO_STATUS_LEDS
+  building_status = false;
+#endif
+  if (queued) {
+    tracker_reply_head = (tracker_reply_head + 1) % 24;
+    --tracker_reply_count;
+    next_tracker_reply = millis() + 1000;
+  }
+}
+
+bool MyMesh::sendStatus() {
+  ChannelDetails ch;
+  if (verifyStatus(ch)) return false;
+#ifndef BATT_MIN_MILLIVOLTS
+#define BATT_MIN_MILLIVOLTS 3000
+#endif
+#ifndef BATT_MAX_MILLIVOLTS
+#define BATT_MAX_MILLIVOLTS 4200
+#endif
+  int percent = constrain(((int)board.getBattMilliVolts() - BATT_MIN_MILLIVOLTS) * 100 /
+                          (BATT_MAX_MILLIVOLTS - BATT_MIN_MILLIVOLTS), 0, 100);
+  auto location = sensors.getLocationProvider();
+  bool fresh = acquiring_position && location && location->hasFreshFix(15000);
+  char text[101];
+  if (sensors.position_valid) {
+    snprintf(text, sizeof(text), "Bat:%d%% GPS:%s https://maps.google.com/?q=%.6f,%.6f", percent,
+             fresh ? "fix" : "no fix; last known", sensors.node_lat, sensors.node_lon);
+  } else snprintf(text, sizeof(text), "Bat:%d%% GPS:no fix; no last known position. %s", percent,
+                  acquiring_position ? "Acquiring." : "Listening.");
+  bool queued = trackerReply(text, sensors.position_valid);
+  if (queued && sensors.position_valid && (!tracker_prefs.status_position_known ||
+      (uint32_t)(millis() - last_position_save) >= 300000UL)) {
+    savePrefs();
+    last_position_save = millis();
+  }
+  return queued;
+}
+
+void MyMesh::startPositionRequest() {
+  if (acquiring_position) return;
+  acquiring_position = sensors.setGPSFromCLI(true);
+  next_status = millis() + tracker_prefs.status_interval * 1000UL;
+}
+
+void MyMesh::trackerLoop() {
+  if (_prefs.gps_enabled && tracker_prefs.status_interval > 0 && tracker_prefs.status_interval <= 86400 &&
+      (int32_t)(millis() - next_status) >= 0) {
+    next_status = millis() + tracker_prefs.status_interval * 1000UL;
+    startPositionRequest();
+    auto location = sensors.getLocationProvider();
+    if (!location || !location->hasFreshFix(15000)) sendStatus();
+  }
+  auto location = sensors.getLocationProvider();
+  if (acquiring_position && location && location->hasFreshFix(15000)) {
+    // Read this new fix directly; the sensor's periodic cache update may not have run yet.
+    sensors.node_lat = location->getLatitude() / 1000000.0;
+    sensors.node_lon = location->getLongitude() / 1000000.0;
+    sensors.position_valid = true;
+    if (sendStatus()) {
+      acquiring_position = false;
+      sensors.setGPSFromCLI(false);
+      next_status = millis() + tracker_prefs.status_interval * 1000UL;
+    }
+  }
+  nearbyLoop();
+  flushTrackerReplies();
+}
+
+void MyMesh::replyRoute(mesh::Packet* packet, const char* command) {
+  if (!packet->isRouteFlood() || !packet->getPathHashCount()) {
+    char text[101];
+    snprintf(text, sizeof(text), "ACK %s; route: direct (no repeater hashes).", command);
+    trackerReply(text);
+    return;
+  }
+  char text[101];
+  snprintf(text, sizeof(text), "ACK %s; route hashes: ", command);
+  for (unsigned i = 0; i < packet->getPathHashCount(); ++i) {
+    if (strlen(text) + packet->getPathHashSize() * 2 + 1 > 100) {
+      trackerReply(text);
+      strcpy(text, "Route continued: ");
+    }
+    char* out = text + strlen(text);
+    for (unsigned j = 0; j < packet->getPathHashSize(); ++j) {
+      sprintf(out, "%02X", packet->path[i * packet->getPathHashSize() + j]);
+      out += 2;
+    }
+    *out++ = i + 1 < packet->getPathHashCount() ? '>' : 0;
+    *out = 0;
+  }
+  trackerReply(text);
+}
+
+void MyMesh::handleTrackerMessage(const mesh::GroupChannel& channel, mesh::Packet* packet, const char* text) {
+  ChannelDetails ch;
+  if (verifyTrackerChannel(ch) || memcmp(channel.secret, ch.channel.secret, 32)) return;
+  const char* body = strstr(text, ": "); // Group text is '<sender>: <body>'.
+  if (!body) return;
+  auto request = tracker::parse(body + 2, _prefs.node_name);
+  switch (request.action) {
+    case tracker::Action::Locate:
+      replyRoute(packet, "!kur");
+      startPositionRequest();
+      if (!sensors.getLocationProvider() || !sensors.getLocationProvider()->hasFreshFix(15000)) sendStatus();
+      break;
+    case tracker::Action::PowerDown:
+      _prefs.gps_enabled = 0;
+      acquiring_position = false;
+      sensors.setGPSFromCLI(false);
+      savePrefs();
+      trackerReply("Power saving ON; GPS stopped. Listening/responding.");
+      break;
+    case tracker::Action::PowerUp:
+      _prefs.gps_enabled = 1;
+      savePrefs();
+      startPositionRequest();
+      trackerReply("Power saving OFF; GPS tracking resumed.");
+      if (!sensors.getLocationProvider() || !sensors.getLocationProvider()->hasFreshFix(15000)) sendStatus();
+      break;
+    case tracker::Action::PowerState:
+      trackerReply(_prefs.gps_enabled ? "Power saving OFF; tracking enabled (GPS sleeps between fixes)." :
+                                       "Power saving ON; tracking paused; listening/responding.");
+      break;
+    case tracker::Action::Interval: {
+      uint32_t seconds = 0;
+      bool valid = true;
+      for (const char* p = request.text; *p; ++p) {
+        if (*p < '0' || *p > '9' || seconds > 8640) { valid = false; break; }
+        seconds = seconds * 10 + (*p - '0');
+        if (seconds > 86400) { valid = false; break; }
+      }
+      char reply[80];
+      if (!valid) trackerReply("Invalid interval. Use !interval 0..86400 seconds (0=timer off).");
+      else {
+        if (*request.text) {
+          tracker_prefs.status_interval = seconds;
+          next_status = millis() + seconds * 1000UL;
+          savePrefs();
+        }
+        snprintf(reply, sizeof(reply), "Interval:%lu seconds (0=scheduled reports off).", (unsigned long)tracker_prefs.status_interval);
+        trackerReply(reply);
+      }
+      break;
+    }
+    case tracker::Action::Help: trackerReply(tracker::HELP); break;
+    case tracker::Action::Triangulate:
+      replyRoute(packet, "!triangulate");
+      startNearbyDiscovery();
+      break;
+    case tracker::Action::Alarm:
+      replyRoute(packet, "!tikra");
+      if (_listener) _listener->onTrackerAlert(*request.text ? request.text : "ALARM !tikra", true);
+      break;
+    case tracker::Action::Conversation:
+      if (_listener) _listener->onTrackerAlert(request.text, false);
+      break;
+    case tracker::Action::Unknown: {
+      char token[25] = {};
+      size_t len = strcspn(request.text, " \t");
+      if (len > sizeof(token) - 1) len = sizeof(token) - 1;
+      memcpy(token, request.text, len);
+      replyRoute(packet, token);
+      break;
+    }
+    default: break;
+  }
+}
+
+void MyMesh::startNearbyDiscovery() {
+  if (nearby_running) { trackerReply("!triangulate: discovery already running."); return; }
+  getRNG()->random((uint8_t*)&nearby_tag, sizeof(nearby_tag));
+  uint8_t data[6] = { uint8_t(CTL_TYPE_NODE_DISCOVER_REQ | 1), uint8_t(1 << ADV_TYPE_REPEATER) };
+  memcpy(data + 2, &nearby_tag, 4);
+  auto packet = createControlData(data, sizeof(data));
+  if (!packet) { trackerReply("!triangulate: radio queue full; retry."); return; }
+  nearby_count = nearby_reported = 0;
+  nearby_overflow = false;
+  nearby_running = true;
+  nearby_deadline = 0; // Window starts after actual transmission, not while queued.
+  nearby_request = packet;
+  sendZeroHop(packet);
+}
+
+void MyMesh::handleNearbyResponse(mesh::Packet* packet) {
+  if (!nearby_running || !nearby_deadline || (int32_t)(millis() - nearby_deadline) >= 0 ||
+      packet->payload_len < 14 || !packet->isRouteDirect() || packet->getPathHashCount() != 0 ||
+      packet->payload[0] != (CTL_TYPE_NODE_DISCOVER_RESP | ADV_TYPE_REPEATER) ||
+      memcmp(packet->payload + 2, &nearby_tag, 4)) return;
+  for (unsigned i = 0; i < nearby_count; ++i) {
+    if (!memcmp(nearby_repeaters[i].key, packet->payload + 6, 8)) return;
+  }
+  if (nearby_count == 64) { nearby_overflow = true; return; }
+  auto& repeater = nearby_repeaters[nearby_count++];
+  memcpy(repeater.key, packet->payload + 6, 8);
+  repeater.rssi = (int16_t)_radio->getLastRSSI();
+  repeater.snr_in = packet->_snr;
+  repeater.snr_out = packet->payload[1];
+}
+
+void MyMesh::nearbyLoop() {
+  if (!nearby_running || !nearby_deadline || (int32_t)(millis() - nearby_deadline) < 0) return;
+  while (nearby_reported < nearby_count && tracker_reply_count < 23) {
+    auto& repeater = nearby_repeaters[nearby_reported];
+    char key[17];
+    for (unsigned i = 0; i < 8; ++i) sprintf(key + 2*i, "%02X", repeater.key[i]);
+    ContactInfo* contact = lookupContactByPubKey(repeater.key, 8);
+    char text[101];
+    snprintf(text, sizeof(text), "Direct %u: %.31s [%s] RX:%ddBm SNR in/out:%+.1f/%+.1fdB", nearby_reported + 1,
+             contact ? contact->name : "unknown", key, repeater.rssi, repeater.snr_in / 4.0, repeater.snr_out / 4.0);
+    if (!trackerReply(text)) return;
+    ++nearby_reported;
+  }
+  if (nearby_reported == nearby_count && tracker_reply_count < 24) {
+    char text[101];
+    snprintf(text, sizeof(text), "!triangulate: %u direct repeater replies in 15s.%s", nearby_count,
+             nearby_overflow ? " Limit 64 reached; more replies omitted." : " Silent/hidden nodes cannot be listed.");
+    if (trackerReply(text)) nearby_running = false;
+  }
+}
+
+static bool statusNumber(const char* text, uint32_t max, uint32_t& value) {
+  if (!*text) return false;
+  value = 0;
+  for (; *text; ++text) {
+    if (*text < '0' || *text > '9') return false;
+    value = value * 10 + (*text - '0');
+    if (value > max) return false;
+  }
+  return true;
+}
+
+bool MyMesh::handleStatusCommand(const char* cmd, char* reply) {
+  if (!strcmp(cmd, "exit")) {
+    _cli_rescue = false;
+    strcpy(reply, "Companion USB protocol resumed");
+  } else if (!strcmp(cmd, "help") || !strcmp(cmd, "status help")) {
+    strcpy(reply, "gps on|off|status|diag; status channels [slot|page N]; status channel <slot>; status interval <0..86400 sec>; status show; status send; verify (0=stop)");
+  } else if (!strcmp(cmd, "gps on") || !strcmp(cmd, "gps off")) {
+    bool enabled = !strcmp(cmd, "gps on");
+    _prefs.gps_enabled = enabled;
+    if (enabled) startPositionRequest();
+    else { acquiring_position = false; sensors.setGPSFromCLI(false); }
+    savePrefs();
+    strcpy(reply, enabled ? "Tracking on; GPS cycles per fix; CLI locked" : "Tracking off; GPS off; CLI locked");
+  } else if (!strcmp(cmd, "tracker hardware")) {
+    snprintf(reply, 160, "Audio:%s GPS:%s; tracking:%s", trackerAudioAvailable() ? "available" : "missing",
+             sensors.isGPSDetected() ? "detected" : "missing", _prefs.gps_enabled ? "on" : "off");
+  } else if (!strcmp(cmd, "gps diag")) {
+    auto location = sensors.getLocationProvider();
+    if (location) location->formatDiagnostics(reply, 160);
+    else strcpy(reply, "No GPS provider");
+  } else if (!strcmp(cmd, "gps status")) {
+    sprintf(reply, "Tracking %s; GPS %s; CLI locked", _prefs.gps_enabled ? "on" : "off", acquiring_position ? "acquiring" : "asleep");
+  } else if (!strcmp(cmd, "status channels") || !strncmp(cmd, "status channels page ", 21)) {
+    uint32_t page = 0;
+    if (strcmp(cmd, "status channels") && !statusNumber(cmd + 21, (MAX_GROUP_CHANNELS - 1) / 3, page)) {
+      strcpy(reply, "Error: invalid page"); return true;
+    }
+    snprintf(reply, 160, "Page %lu (status channels page N):", (unsigned long)page);
+    for (unsigned i = page * 3; i < page * 3 + 3 && i < MAX_GROUP_CHANNELS; ++i) {
+      ChannelDetails ch;
+      if (getChannel(i, ch) && ch.name[0]) snprintf(reply + strlen(reply), 160 - strlen(reply), "\n%u: %s", i, ch.name);
+    }
+  } else if (!strncmp(cmd, "status channels ", 16) || !strncmp(cmd, "status channel ", 15)) {
+    bool inspect = !strncmp(cmd, "status channels ", 16);
+    uint32_t slot;
+    ChannelDetails ch;
+    if (!statusNumber(cmd + (inspect ? 16 : 15), MAX_GROUP_CHANNELS - 1, slot) || !getChannel(slot, ch) || !ch.name[0]) {
+      strcpy(reply, "Error: invalid or empty channel slot");
+    } else {
+      const char* error = privateStatusChannel(ch);
+      if (inspect) snprintf(reply, 160, "%lu: %s (%s)", (unsigned long)slot, ch.name, error ? error : "private candidate");
+      else if (error) snprintf(reply, 160, "Error: %s", error);
+      else {
+        tracker_reply_count = tracker_reply_head = 0; // Never redirect queued replies to a newly selected channel.
+        nearby_running = false; nearby_request = nullptr;
+        tracker_prefs.status_channel = slot;
+        memcpy(tracker_prefs.status_key, ch.channel.secret, 32);
+        memcpy(tracker_prefs.status_name, ch.name, 32);
+        savePrefs();
+        snprintf(reply, 160, "Status channel: %lu %s", (unsigned long)slot, ch.name);
+      }
+    }
+  } else if (!strncmp(cmd, "status interval ", 16)) {
+    uint32_t seconds;
+    if (!statusNumber(cmd + 16, 86400, seconds)) strcpy(reply, "Error: interval must be 0..86400 seconds");
+    else {
+      tracker_prefs.status_interval = seconds;
+      next_status = millis() + seconds * 1000UL;
+      savePrefs();
+      sprintf(reply, "Status interval: %lu seconds (0=disabled)", (unsigned long)seconds);
+    }
+  } else if (!strcmp(cmd, "status show")) {
+    snprintf(reply, 160, "Tracking:%s GPS:%s channel:%u %s interval:%lu seconds", _prefs.gps_enabled ? "on" : "off",
+             acquiring_position ? "acquiring" : "asleep", tracker_prefs.status_channel, tracker_prefs.status_name, (unsigned long)tracker_prefs.status_interval);
+  } else if (!strcmp(cmd, "verify") || !strcmp(cmd, "status verify") || !strcmp(cmd, "status send")) {
+    ChannelDetails ch;
+    const char* error = verifyStatus(ch);
+    if (error) snprintf(reply, 160, "BLOCKED: %s", error);
+    else if (!strcmp(cmd, "status send")) { startPositionRequest(); strcpy(reply, sendStatus() ? "Status queued; acquiring until fresh fix" : "Error: status not queued"); }
+    else strcpy(reply, "READY: private channel bound. GPS cycles per fix; no fix reports are labelled last known.");
+  } else return false;
+  return true;
+}
+#endif
+
+#ifdef PRIVATE_STATUS_REPORTER
+void MyMesh::logTx(mesh::Packet* packet, int len) {
+  if (_listener) _listener->onPacketSent(packet);
+  if (nearby_running && packet == nearby_request) {
+    nearby_request = nullptr;
+    nearby_deadline = millis() + 15000;
+  }
+#ifdef TECHO_STATUS_LEDS
+  uint8_t hash[MAX_HASH_SIZE];
+  packet->calculatePacketHash(hash);
+  for (auto& pending : status_led_packets) {
+    if (pending.packet == packet && !memcmp(pending.hash, hash, MAX_HASH_SIZE)) {
+      pending.packet = nullptr;
+      board.onStatusTransmitted();
+      break;
+    }
+  }
+#endif
+}
+void MyMesh::logTxFail(mesh::Packet* packet, int len) {
+  BaseChatMesh::logTxFail(packet, len);
+  if (packet == nearby_request) {
+    nearby_running = false; nearby_request = nullptr;
+    trackerReply("!triangulate: discovery transmission failed; retry.");
+  }
+#ifdef TECHO_STATUS_LEDS
+  for (auto& pending : status_led_packets) {
+    if (pending.packet == packet) pending.packet = nullptr;
+  }
+#endif
+}
+#endif

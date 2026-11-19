@@ -28,6 +28,9 @@ public:
   DataStore(FILESYSTEM& fs, mesh::RTCClock& clock);
   DataStore(FILESYSTEM& fs, FILESYSTEM& fsExtra, mesh::RTCClock& clock);
   void begin();
+#ifdef ZYGIS_EINK_PORTRAIT
+  void usePrimaryForBulkStorage() { _fsExtra = nullptr; }
+#endif
   bool formatFileSystem();
   FILESYSTEM* getPrimaryFS() const { return _fs; }
   FILESYSTEM* getSecondaryFS() const { return _fsExtra; }

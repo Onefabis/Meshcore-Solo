@@ -26,6 +26,10 @@ public:
     // satellitesCount() in that case.
     virtual long getHDOP() { return -1; }
     virtual bool isValid() = 0;
+#ifdef PRIVATE_STATUS_REPORTER
+    virtual bool hasFreshFix(uint32_t) { return false; }
+#endif
+
     virtual long getTimestamp() = 0;
     // Default no-op body: a subclass that doesn't override it (variants/sim's
     // SimLocationProvider) still links -- declared without a body, the base

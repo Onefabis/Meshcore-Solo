@@ -1,13 +1,10 @@
-name: Build Repeater Firmwares
+name: "Manual reference: Build Repeater Firmwares"
 
 permissions:
   contents: write
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - 'repeater-*'
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true

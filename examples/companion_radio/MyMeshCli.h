@@ -11,7 +11,7 @@
 
 static bool cliOnOff(const char* v) { return strncmp(v, "on", 2) == 0 || strcmp(v, "1") == 0; }
 
-bool MyMesh::handleCliCommand(const char* command, char* reply, int n) {
+bool MyMesh::handleCliCommand(const char* command, char* reply, int n, bool localTracking) {
   struct InCli { bool& f; InCli(bool& f) : f(f) { f = true; } ~InCli() { f = false; } } in_cli(_in_cli);
   while (*command == ' ') command++;
   if (strlen(command) > 4 && command[2] == '|') {   // optional "xx|" prefix, reflected back
@@ -21,6 +21,18 @@ bool MyMesh::handleCliCommand(const char* command, char* reply, int n) {
     *reply = 0;
     command += 3;
   }
+#ifdef PRIVATE_STATUS_REPORTER
+  if (localTracking) {
+    while (*command == ' ') ++command;
+    char trackingReply[160];
+    if (handleStatusCommand(command, trackingReply)) {
+      snprintf(reply, n, "%s", trackingReply);
+      return true;
+    }
+  }
+#else
+  (void)localTracking;
+#endif
   if (_cli_batch) _batch_until = futureMillis(CLI_BATCH_IDLE_MS);
   // "batch on": the sets that follow are saved once, at "batch off" (or
   // CLI_BATCH_IDLE_MS after the last command). For a configurator's backup.

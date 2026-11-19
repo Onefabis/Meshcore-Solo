@@ -100,6 +100,7 @@ void UITask::channelMenu(int idx) {
   };
   for (auto& b : btns) {
     if (b.act == A_READ && !unread) continue;
+    if ((b.act == A_EDIT || b.act == A_DELETE) && chanctl::trackingLocked(idx)) continue;
     lv_obj_t* bt = barButton(acts, b.text, onChanAction, b.act);
     if (b.act == A_DELETE) s_del_lbl = lv_obj_get_child(bt, 0);
     if (b.act == A_FAV) { s_fav_btn = bt; styleSelected(bt, chanctl::favourite(_prefs, idx)); }
@@ -110,7 +111,10 @@ void UITask::channelSet(uint8_t which, int v) {
   using namespace chanview;
   if (!chanctl::exists(s_idx) || !_prefs) return;
   if (which == C_NOTIF) chanctl::setNotif(_prefs, s_idx, (uint8_t)v);
-  else if (which == C_SCOPE) the_mesh.setChannelScope(s_idx, chanctl::scopeFromRow(v));
+  else if (which == C_SCOPE) {
+    if (chanctl::trackingLocked(s_idx)) return;
+    the_mesh.setChannelScope(s_idx, chanctl::scopeFromRow(v));
+  }
   else if (which == C_MELODY) { chanctl::setMelody(_prefs, s_idx, (uint8_t)v); hearMelody(v); }
   prefsSave();
 }
@@ -119,6 +123,7 @@ void UITask::channelAction(uint8_t act) {
   using namespace chanview;
   int idx = s_idx;
   if (!chanctl::exists(idx)) { navClosePopup(); return; }
+  if ((act == A_EDIT || act == A_DELETE) && chanctl::trackingLocked(idx)) return;
   switch (act) {
     case A_FAV: {
       bool on = !chanctl::favourite(_prefs, idx);

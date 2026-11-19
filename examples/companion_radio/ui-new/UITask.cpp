@@ -1,5 +1,8 @@
 #include <helpers/UTF8Helpers.h>
 #include "UITask.h"
+#ifdef PRIVATE_STATUS_REPORTER
+#include "../TrackerAudio.h"
+#endif
 #include "../ui-core/SoundNotifier.h"
 #include "../ui-core/SoundControl.h"
 #include "../ui-core/Telemetry.h"
@@ -115,6 +118,10 @@ static const telemetry::Style L1_INFO      = { "\xc2\xb0", true,  false, 5 };
 #include "GpioScreen.h"
 #endif
 #include "FlashlightScreen.h"
+#ifdef SOLO_GAMES_ENABLED
+#include <new>
+#include "GamesScreen.h"
+#endif
 #include "ToolsScreen.h"
 #include "CalendarView.h"       // the month under a tall clock, Clock tools › Calendar
 #include "ClockToolsScreen.h"   // Alarm / Timer / Stopwatch / Calendar (Clock page › Enter)
@@ -264,6 +271,153 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
 }
 
 // onShow() is invoked by setCurrScreen(), so most navigators are just that.
+#ifdef SOLO_GAMES_ENABLED
+void UITask::gotoGamesScreen(uint8_t game_id) {
+  if (!games_screen) games_screen = new (std::nothrow) GamesScreen(this);
+  if (!games_screen) { showAlert("Not enough RAM", 1500); return; }
+  setCurrScreen(games_screen);
+  if (games_screen && game_id == NodePrefs::FAV_GAME_TICTACTOE) ((GamesScreen*)games_screen)->openTicTacToe();
+  if (games_screen && game_id == NodePrefs::FAV_GAME_TICTACTOE_MESH) ((GamesScreen*)games_screen)->openMultiplayer();
+#ifdef SOLO_GAME_SNAKE
+  if (games_screen && game_id == NodePrefs::FAV_GAME_SNAKE) ((GamesScreen*)games_screen)->openSnake();
+#endif
+#ifdef SOLO_GAME_CHECKERS
+  if (games_screen && game_id == NodePrefs::FAV_GAME_CHECKERS) ((GamesScreen*)games_screen)->openCheckers();
+#endif
+#ifdef SOLO_GAME_BATTLESHIP
+  if (games_screen && game_id == NodePrefs::FAV_GAME_BATTLESHIP) ((GamesScreen*)games_screen)->openBattleship();
+#endif
+#ifdef SOLO_GAME_ARTILLERY
+  if (games_screen && game_id == NodePrefs::FAV_GAME_ARTILLERY) ((GamesScreen*)games_screen)->openArtillery();
+#endif
+#ifdef SOLO_GAME_HOLDEM
+  if (games_screen && game_id == NodePrefs::FAV_GAME_HOLDEM) ((GamesScreen*)games_screen)->openHoldem();
+#endif
+#ifdef SOLO_GAME_VEYLITH
+  if (games_screen && game_id == NodePrefs::FAV_GAME_VEYLITH) ((GamesScreen*)games_screen)->openVeylith();
+#endif
+#ifdef SOLO_GAMES_MULTIPLAYER
+  if(games_screen&&game_id==NodePrefs::FAV_GAME_ARENA_MESH)((GamesScreen*)games_screen)->openArenaMultiplayer();
+#endif
+}
+bool UITask::gameChannel(uint8_t slot, char* name, size_t size, uint8_t digest[16]) {
+  ChannelDetails channel;
+  if (!the_mesh.getGameChannel(slot, channel, digest)) return false;
+  if (size) DisplayDriver::translateUTF8Static(name, channel.name, size);
+  return true;
+}
+uint32_t UITask::gamePlayerId() const {
+  uint32_t id = 0;
+  memcpy(&id, the_mesh.self_id.pub_key, sizeof(id));
+  return id ? id : 1;
+}
+uint64_t UITask::gameSessionId() const {
+  uint64_t id = 0;
+  the_mesh.getRNG()->random((uint8_t*)&id, sizeof(id));
+  return id ? id : 1;
+}
+bool UITask::sendGameText(uint8_t slot, const char* text, const uint8_t digest[16]) {
+#ifdef PRIVATE_STATUS_REPORTER
+  if (tracker_alert_active) return false;
+#endif
+  if (!the_mesh.canSendGameMessage()) return false;
+  ChannelDetails channel; uint8_t current[16];
+  if (!the_mesh.getGameChannel(slot, channel, current) || memcmp(current, digest, 16)) return false;
+  size_t length = strlen(text);
+  bool valid=length==52&&!strncmp(text,"~G1:",4);
+#ifdef SOLO_GAMES_MULTIPLAYER
+  solo_games::multiplayer::Packet packet;
+  valid=valid||solo_games::multiplayer::Codec::decode(text,packet);
+#endif
+  if(!valid||length+strlen(the_mesh.getNodeName())+2>MAX_TEXT_LEN)return false;
+  return the_mesh.sendGroupMessage(the_mesh.getRTCClock()->getCurrentTimeUnique(), channel.channel,
+    the_mesh.getNodeName(), text, length);
+}
+void UITask::onGameChannelText(uint8_t channel, const char* text, const char* sender) {
+  if (games_screen && curr == games_screen) {
+    char name[40];DisplayDriver::translateUTF8Static(name,sender,sizeof(name));
+    ((GamesScreen*)games_screen)->receiveText(channel,text,name);
+  }
+}
+#ifdef ZYGIS_GAME_DIAGNOSTICS
+size_t UITask::writeGameDiagnostics(uint8_t* output, size_t size) {
+  if (games_screen) return ((GamesScreen*)games_screen)->diagnostics(output, size);
+  if (size < 44) return 0;
+  memset(output, 0, 44); // No game object is resident.
+  return 44;
+}
+#endif
+#ifdef ZYGIS_GAME_TEST_API
+bool UITask::gameTestInput(uint8_t mode, char key) {
+  if (_display) _display->turnOn();
+  _auto_off = millis() + AUTO_OFF_MILLIS;
+  _next_refresh = 0;
+  if (mode == 0) { gotoGamesScreen(); return games_screen && curr == games_screen; }
+  if (mode == 2) { gotoToolsScreen(); return true; }
+  if (mode == 3) {
+    // Local-only screen lifecycle probe; no compose/send or preference edits.
+    switch ((uint8_t)key) {
+      case 0: gotoHomeScreen(); break;
+      case 1: gotoMessagesScreen(); break;
+      case 2: gotoSettingsScreen(); break;
+      case 3: gotoNearbyScreen(); break;
+      case 4: gotoTrailScreen(); break;
+      case 5: gotoClockTools(); break;
+      case 6: gotoToolsScreen(); break;
+      default: return false;
+    }
+    return true;
+  }
+  if (!games_screen || curr != games_screen) return false;
+  if (mode != 1 || (key != KEY_ENTER && key != KEY_CANCEL && key != KEY_UP && key != KEY_DOWN && key != KEY_LEFT && key != KEY_RIGHT && (uint8_t)key != KEY_CONTEXT_MENU)) return false;
+  // Test keys reach only GamesScreen, never chat compose or mesh settings.
+  bool handled = games_screen->handleInput(key);
+  _next_refresh = 0;
+  return handled;
+}
+#endif
+void UITask::playGameSound(bool result) {
+#ifdef PRIVATE_STATUS_REPORTER
+  if (tracker_alert_active) return;
+#endif
+#ifdef PIN_BUZZER
+  if (!buzzer.isPlaying()) buzzer.play(result ? "game:d=32,o=6,b=160:c,e,g" : "game:d=64,o=6,b=180:c");
+#endif
+}
+#ifdef SOLO_GAME_VEYLITH
+bool UITask::playArenaSound(uint8_t cue) {
+#ifdef PRIVATE_STATUS_REPORTER
+  if (tracker_alert_active) return true; // Discard game cues while a tracking alert owns audio.
+#endif
+#ifdef PIN_BUZZER
+  const char* sound=veylith::melody(cue);
+  if(!sound||buzzer.isQuiet())return true;
+  if(buzzer.isPlaying())return false;
+  buzzer.play(sound);
+#endif
+  return true;
+}
+#endif
+#ifdef SOLO_GAME_VEYLITH
+int UITask::loadVeylith(uint8_t* bytes,size_t size){return the_mesh.loadVeylith(bytes,size);}
+bool UITask::saveVeylith(const uint8_t* bytes,size_t size){return the_mesh.saveVeylith(bytes,size);}
+bool UITask::backupVeylith(){return the_mesh.backupVeylith();}
+#endif
+
+#ifdef SOLO_GAMES_MULTIPLAYER
+void UITask::gamePublicKey(uint8_t out[32])const{memcpy(out,the_mesh.self_id.pub_key,32);}
+void UITask::gameSharedSecret(const uint8_t peer[32],uint8_t out[32])const{the_mesh.self_id.calcSharedSecret(out,peer);}
+const char* UITask::gameNodeName()const{return the_mesh.getNodeName();}
+bool UITask::gameRandomBytes(uint8_t* out,size_t size){
+#if defined(NRF52_PLATFORM) && defined(USE_CC310_HW_CRYPTO)
+  return size<=65535&&nRFCrypto.Random.generate(out,uint16_t(size));
+#else
+  return false;
+#endif
+}
+#endif
+#endif
+
 void UITask::gotoSettingsScreen()  { setCurrScreen(settings); }
 void UITask::gotoToolsScreen()     { _tool_from_home = false; setCurrScreen(tools_screen); }
 void UITask::leaveTool()           { if (_tool_from_home) gotoHomeScreen(); else gotoToolsScreen(); }
@@ -1497,7 +1651,46 @@ void UITask::handleSimpsonKeypadKey(uint8_t key) {
 
 #include "PerfL1.h"
 
+#ifdef PRIVATE_STATUS_REPORTER
+bool UITask::consumeTrackerDismissal() {
+  if (tracker_alert_active) {
+    tracker_alert_active = tracker_alarm_active = false;
+    trackerAudioStop();
+    tracker_button_consumed = true;
+    tracker_alert_release = millis() + 500;
+    _kq_head = _kq_tail = 0;
+    _next_refresh = 0;
+    return true;
+  }
+  if (tracker_button_consumed) {
+    if ((int32_t)(millis() - tracker_alert_release) < 0) return true;
+    tracker_button_consumed = false;
+  }
+  return false;
+}
+
+void UITask::onTrackerAlert(const char* text, bool alarm) {
+  if (tracker_alarm_active && !alarm) return; // Conversation must not silence an active alarm.
+  StrHelper::strncpy(tracker_alert_text, text, sizeof(tracker_alert_text));
+  tracker_alert_active = tracker_alert_dirty = true;
+  tracker_alarm_active = alarm;
+  trackerAudioStart(alarm);
+  if (_display) _display->turnOn();
+}
+#endif
+
 void UITask::loop() {
+#ifdef PRIVATE_STATUS_REPORTER
+  trackerAudioLoop();
+#endif
+#ifdef SOLO_GAMES_ENABLED
+  if (games_screen && curr != games_screen) {
+    delete static_cast<GamesScreen*>(games_screen);
+    games_screen = nullptr;
+  }
+#endif
+
+
 #if defined(UI_PERF_L1) && defined(NRF52_PLATFORM)
   { static uint32_t start = millis();
     perfl1::disp = _display;
@@ -1833,6 +2026,9 @@ void UITask::loop() {
     if (_locked) _lock_wake_until = millis() + 5000;
   }
 
+#ifdef PRIVATE_STATUS_REPORTER
+  if (_kq_head != _kq_tail && consumeTrackerDismissal()) _kq_head = _kq_tail = 0;
+#endif
   // Over everything else, locked or not.
   if (_kq_head != _kq_tail && sosViewOpen()) {
     char k;
@@ -1889,6 +2085,21 @@ void UITask::loop() {
       cancelUnlockPrompt(); // Cancel unlock attempt on idle
       _next_refresh = 0;
     }
+#ifdef PRIVATE_STATUS_REPORTER
+    if (tracker_alert_active) {
+      if (tracker_alert_dirty) {
+        _display->startFrame();
+        _display->setTextSize(1);
+        _display->setColor(UIColor::primary_txt);
+        _display->drawTextCentered(_display->width() / 2, 2,
+                                   tracker_alarm_active ? "ALARM - any key" : "MESSAGE - any key");
+        _display->setCursor(2, _display->getLineHeight() + 4);
+        _display->printWordWrap(tracker_alert_text, _display->width() - 4);
+        _display->endFrame();
+        tracker_alert_dirty = false;
+      }
+    } else
+#endif
     if (sosViewOpen()) {
       if (refreshDue()) {
         _display->startFrame();
@@ -2280,7 +2491,13 @@ void UITask::toggleGPS(bool announce) {
 // Home-page manual toggle and the bot's !gps on/off command, which needs to
 // set a specific state rather than flip whatever it currently is.
 void UITask::applyGpsState(bool on, bool announce) {
-  if (!_core->setGpsEnabled(on)) return;   // no GPS on this board
+#ifdef PRIVATE_STATUS_REPORTER
+  char reply[160];
+  if (!the_mesh.runTrackingCommand(on ? "gps on" : "gps off", reply)) return;
+#else
+  if (!_core->setGpsEnabled(on)) return;
+#endif
+   // no GPS on this board
   notify(UIEventType::ack);
   if (announce) showAlert(on ? "GPS: Enabled" : "GPS: Disabled", 800);
   _next_refresh = 0;

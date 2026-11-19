@@ -203,6 +203,12 @@ public:
       // Every packet heard / sent, for a picture of the mesh at work
       // (ui-core/PacketFlow.h). Called before the packet is handled.
       virtual void onPacketHeard(const mesh::Packet* pkt) { }
+#ifdef PRIVATE_STATUS_REPORTER
+      virtual void onTrackerAlert(const char*, bool) {}
+#endif
+#ifdef SOLO_GAMES_ENABLED
+      virtual void onGameChannelText(uint8_t, const char*, const char*) {}
+#endif
       virtual void onPacketSent(const mesh::Packet* pkt) { }
       // A companion CLI command MyMesh has no answer for (its settings keys):
       // the reply into `reply` (n bytes), false when unknown.
@@ -217,6 +223,27 @@ public:
   void startInterface(BaseSerialInterface &serial);
 
   const char *getNodeName();
+#ifdef PRIVATE_STATUS_REPORTER
+  bool runTrackingCommand(const char* command, char* reply) { return handleStatusCommand(command, reply); }
+  uint32_t trackingInterval() const { return tracker_prefs.status_interval; }
+  uint8_t trackingChannel() const { return tracker_prefs.status_channel; }
+  const char* trackingChannelName() const { return tracker_prefs.status_name; }
+  bool trackingAcquiring() const { return acquiring_position; }
+  bool isPrivateTrackingChannel(uint8_t slot) {
+    ChannelDetails channel;
+    return getChannel(slot, channel) && !privateStatusChannel(channel);
+  }
+#endif
+#ifdef SOLO_GAMES_ENABLED
+#ifdef SOLO_GAME_VEYLITH
+  int loadVeylith(uint8_t* bytes,size_t size);
+  bool saveVeylith(const uint8_t* bytes,size_t size);
+  bool backupVeylith();
+#endif
+  // Games lists existing private channels using the shared privacy predicate.
+  bool getGameChannel(uint8_t slot, ChannelDetails& channel, uint8_t digest[16]);
+  bool canSendGameMessage() const;
+#endif
   NodePrefs *getNodePrefs();
   uint32_t getBLEPin();
   void setBLEPin(uint32_t active_pin);
@@ -328,7 +355,12 @@ protected:
 
   void logRxRaw(float snr, float rssi, const uint8_t raw[], int len) override;
   void logRx(mesh::Packet* pkt, int len, float score) override { if (_listener) _listener->onPacketHeard(pkt); }
+#ifdef PRIVATE_STATUS_REPORTER
+  void logTx(mesh::Packet*, int) override;
+  void logTxFail(mesh::Packet*, int) override;
+#else
   void logTx(mesh::Packet* pkt, int len) override { if (_listener) _listener->onPacketSent(pkt); }
+#endif
   bool isAutoAddEnabled() const override;
   bool shouldAutoAddContactType(uint8_t type) const override;
   bool shouldOverwriteWhenFull() const override;
@@ -475,7 +507,7 @@ public:
   bool factoryReset();
 
   // Companion CLI (MyMeshCli.h): CMD_RUN_CLI_COMMAND's text in, the reply out.
-  bool handleCliCommand(const char* command, char* reply, int n);
+  bool handleCliCommand(const char* command, char* reply, int n, bool localTracking = false);
 
   // On-device "remote admin" (Tools > Admin): send a CLI command to a node
   // you're logged into with admin permission (see ClientACL::isAdmin()). The
@@ -495,6 +527,9 @@ public:
   void savePrefs() {
     if (_cli_batch && _in_cli) { _batch_dirty = true; return; }
     _store->savePrefs(_prefs, sensors.node_lat, sensors.node_lon);
+#ifdef PRIVATE_STATUS_REPORTER
+    saveTrackerPrefs();
+#endif
     _batch_dirty = false;
   }
   // Bluetooth on/off as the user left it (NodePrefs::ble_off), kept over reboots.
@@ -609,6 +644,11 @@ public:
 
 #if ENV_INCLUDE_GPS == 1
   void applyGpsPrefs() {
+#ifdef PRIVATE_STATUS_REPORTER
+    sensors.setSettingValue("gps_interval", "0");
+    sensors.setGPSFromCLI(false);
+    return;
+#endif
     sensors.setSettingValue("gps", _prefs.gps_enabled ? "1" : "0");
     // gps_interval doubles as the GPS duty-cycle sleep window in seconds
     // (0 = disabled, GPS stays continuous) -- see EnvironmentSensorManager::
@@ -671,6 +711,44 @@ private:
   void botChannelSenderSplit(const char* text, char* sender_name, int sender_name_len, const char** msg_out);
   void noteSos(const uint8_t* pub_key, const char* name, const char* body, bool verified);
 
+#ifdef PRIVATE_STATUS_REPORTER
+  struct TrackerPrefs {
+    uint32_t status_interval = 0;
+    uint8_t status_channel = 255;
+    uint8_t status_position_known = 0;
+    char status_name[32] = {};
+    uint8_t status_key[32] = {};
+  } tracker_prefs;
+  void loadTrackerPrefs();
+  void saveTrackerPrefs();
+  uint32_t next_status = 0;
+  uint32_t last_position_save = 0;
+  bool handleStatusCommand(const char* command, char* reply);
+  const char* verifyStatus(ChannelDetails& channel);
+  const char* privateStatusChannel(const ChannelDetails& channel);
+  bool sendStatus();
+  bool acquiring_position = false;
+  struct TrackerReply { char text[101]; bool position; };
+  TrackerReply tracker_replies[24];
+  uint8_t tracker_reply_head = 0, tracker_reply_count = 0;
+  uint32_t next_tracker_reply = 0;
+  bool trackerReply(const char* text, bool position = false);
+  void flushTrackerReplies();
+  void startPositionRequest();
+  void trackerLoop();
+  void handleTrackerMessage(const mesh::GroupChannel& channel, mesh::Packet* packet, const char* text);
+  const char* verifyTrackerChannel(ChannelDetails& channel);
+  void replyRoute(mesh::Packet* packet, const char* command);
+  struct NearbyRepeater { uint8_t key[8]; int16_t rssi; int8_t snr_in, snr_out; };
+  NearbyRepeater nearby_repeaters[64];
+  uint8_t nearby_count = 0, nearby_reported = 0;
+  bool nearby_running = false, nearby_overflow = false;
+  uint32_t nearby_tag = 0, nearby_deadline = 0;
+  mesh::Packet* nearby_request = nullptr;
+  void startNearbyDiscovery();
+  void handleNearbyResponse(mesh::Packet* packet);
+  void nearbyLoop();
+#endif
   void writeOKFrame();
   void writeErrFrame(uint8_t err_code);
   void writeDisabledFrame();

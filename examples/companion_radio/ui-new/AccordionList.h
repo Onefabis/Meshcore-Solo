@@ -35,6 +35,7 @@ public:
     rebuild();
   }
 
+  int visibleCount() const { return _vis_count; }
   bool collapsed(int sec) const        { return (_collapsed >> sec) & 1; }
   const Row& selected() const          { return _rows[_sel]; }
 

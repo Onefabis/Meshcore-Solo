@@ -73,6 +73,17 @@ class UITask : public UITaskBase, public UiCoreHost {
 #ifdef PIN_VIBRATION
   GenericVibration vibration;
 #endif
+#ifdef PRIVATE_STATUS_REPORTER
+  bool tracker_alert_active = false, tracker_alarm_active = false, tracker_alert_dirty = false;
+  bool tracker_button_consumed = false;
+  char tracker_alert_text[161] = {};
+  uint32_t tracker_alert_release = 0;
+  bool consumeTrackerDismissal();
+  void onTrackerAlert(const char*, bool) override;
+#endif
+#ifdef SOLO_GAMES_ENABLED
+  UIScreen* games_screen = nullptr;
+#endif
   unsigned long _next_refresh, _auto_off;
   bool _display_was_on = true;   // loop(): display on and unlocked last time round
   NodePrefs* _node_prefs;
@@ -392,6 +403,36 @@ public:
   void pickBotChannelTarget();             // open Messages to choose the auto-reply bot's channel
   void pickBotRoomTarget();                // open Messages to choose the auto-reply bot's room
   void gotoToolsScreen();
+#ifdef SOLO_GAMES_ENABLED
+  void gotoGamesScreen(uint8_t game_id = 0);
+  void playGameSound(bool result);
+#ifdef SOLO_GAME_VEYLITH
+  bool playArenaSound(uint8_t cue);
+#endif
+#ifdef SOLO_GAME_VEYLITH
+  int loadVeylith(uint8_t* bytes,size_t size);
+  bool saveVeylith(const uint8_t* bytes,size_t size);
+  bool backupVeylith();
+#endif
+#ifdef ZYGIS_GAME_DIAGNOSTICS
+  size_t writeGameDiagnostics(uint8_t* output, size_t size) override;
+#endif
+  void onGameChannelText(uint8_t channel, const char* text, const char* sender) override;
+  bool gameChannel(uint8_t slot, char* name, size_t size, uint8_t digest[16]);
+  uint32_t gamePlayerId() const;
+  uint64_t gameSessionId() const;
+  bool sendGameText(uint8_t slot, const char* text, const uint8_t digest[16]);
+#ifdef SOLO_GAMES_MULTIPLAYER
+  void gamePublicKey(uint8_t out[32]) const;
+  void gameSharedSecret(const uint8_t peer[32],uint8_t out[32]) const;
+  bool gameRandomBytes(uint8_t* out,size_t size);
+  const char* gameNodeName()const;
+#endif
+#ifdef ZYGIS_GAME_TEST_API
+  bool gameTestInput(uint8_t mode, char key) override;
+#endif
+#endif
+
   // A tool's Back: to Home when Home's Tools page opened it, else to the Tools list.
   void leaveTool();
   void setToolFromHome(bool home) { _tool_from_home = home; }

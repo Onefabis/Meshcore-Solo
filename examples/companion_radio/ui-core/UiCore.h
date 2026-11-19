@@ -81,7 +81,9 @@ public:
 #endif
     clock.loop();
     course.loop();
+#ifndef PRIVATE_STATUS_REPORTER
     live_share.loop();
+#endif
     locator.loop();
     trail.loop();
 #if FEAT_ROUTES
@@ -357,6 +359,16 @@ public:
     f.acc = hdop10 >= 0 ? (int)((hdop10 + 1) / 2) : -1;
     return true;
   }
+#ifdef PRIVATE_STATUS_REPORTER
+  void onTrackerAlert(const char* text, bool alarm) override {
+    if (_host) _host->onTrackerAlert(text, alarm);
+  }
+#endif
+#ifdef SOLO_GAMES_ENABLED
+  void onGameChannelText(uint8_t slot, const char* text, const char* sender) override {
+    if (_host) _host->onGameChannelText(slot, text, sender);
+  }
+#endif
   void onPacketSent(const mesh::Packet* pkt) override { flow.onSent(pkt); }
   bool requestShutdown(bool restart) override { _host->shutdown(restart); return true; }
 
@@ -416,7 +428,9 @@ public:
     char quoted[MSG_TEXT_BUF];
     if (strncmp(text, "Me: ", 4) == 0) { snprintf(quoted, sizeof(quoted), "\"Me\"%s", text + 2); text = quoted; }
     addChannelMsg(channel_idx, text, timestamp, pkt->path, (uint8_t)pkt->path_len);
+#ifndef PRIVATE_STATUS_REPORTER
     pushMessageArrived(UIEventType::channelMessage, channel_details.name, channel_idx);
+#endif
     if (_prefs && (_prefs->sos_ch_mask & (1ULL << channel_idx))) {   // only where the SOS went
       char from[32];
       const char* body = contactctl::splitRoomPost(text, from, sizeof(from));   // the same "Name: text"

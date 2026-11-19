@@ -15,6 +15,9 @@ public:
     ACT_NEARBY, ACT_LIVESHARE, ACT_TRAIL, ACT_LOCATOR, ACT_COMPASS,
     ACT_SOS, ACT_BOT, ACT_AUTOADVERT, ACT_REPEATER, ACT_ADMIN,
     ACT_CLOCK, ACT_RINGTONE, ACT_FLASHLIGHT
+#ifdef SOLO_GAMES_ENABLED
+    , ACT_GAMES
+#endif
 #if defined(PIN_GPIO1)
     , ACT_GPIO
 #endif
@@ -50,6 +53,9 @@ public:
       case ACT_AUTOADVERT:  task->gotoAutoAdvertScreen();  break;
       case ACT_REPEATER:    task->gotoRepeaterScreen();    break;
       case ACT_ADMIN:       task->pickAdminTarget();       break;  // Admin is remote-only: pick a node first
+#ifdef SOLO_GAMES_ENABLED
+      case ACT_GAMES: task->gotoGamesScreen(); break;
+#endif
       case ACT_CLOCK:       task->gotoClockTools();        break;
       case ACT_RINGTONE:    task->gotoRingtoneEditor();    break;
       case ACT_FLASHLIGHT:  task->gotoFlashlight();        break;
@@ -136,6 +142,9 @@ const ToolsScreen::Tool ToolsScreen::COMMS_TOOLS[] = {
   { "Admin",           ACT_ADMIN },
 };
 const ToolsScreen::Tool ToolsScreen::SYSTEM_TOOLS[] = {
+#ifdef SOLO_GAMES_ENABLED
+  { "Games", ACT_GAMES },
+#endif
   { "Clock Tools",     ACT_CLOCK },
   { "Ringtone Editor", ACT_RINGTONE },
 #if !defined(EINK_DISPLAY_MODEL)   // Features::IS_EINK: no light to give

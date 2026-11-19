@@ -82,7 +82,7 @@ void DataStore::begin() {
   _ContactsChannelsTotalBlocks = _getContactsChannelsFS()->_getFS()->cfg->block_count;
   checkAdvBlobFile();
   #if defined(EXTRAFS) || defined(QSPIFLASH)
-  migrateToSecondaryFS();
+  if (_fsExtra) migrateToSecondaryFS();
   #endif
 #else
   // init 'blob store' support
@@ -422,6 +422,17 @@ static void importOldPrefs(File& f, NodePrefs& p, double& lat, double& lon) {
   f.read((uint8_t*)&p.rx_boosted_gain, sizeof(p.rx_boosted_gain));
   f.read((uint8_t*)p.default_scope_name, sizeof(p.default_scope_name));
   f.read((uint8_t*)p.default_scope_key, sizeof(p.default_scope_key));
+#ifdef PRIVATE_STATUS_REPORTER
+  // These binary fields have the same types in the Žygis and Solo layouts.
+  auto readOptional = [&](void* value, size_t length) {
+    if (f.available() >= (int)length) f.read((uint8_t*)value, length);
+  };
+  readOptional(&p.display_brightness, sizeof(p.display_brightness));
+  readOptional(&p.auto_off_secs, sizeof(p.auto_off_secs));
+  readOptional(&p.tz_offset_hours, sizeof(p.tz_offset_hours));
+  readOptional(&p.low_batt_mv, sizeof(p.low_batt_mv));
+  readOptional(&p.batt_display_mode, sizeof(p.batt_display_mode));
+#endif
   p.node_name[sizeof(p.node_name) - 1] = '\0';
   p.default_scope_name[sizeof(p.default_scope_name) - 1] = '\0';
   if (p.client_repeat > 1) p.client_repeat = 0;
@@ -491,7 +502,9 @@ void DataStore::loadPrefs(NodePrefs& prefs, double& node_lat, double& node_lon) 
         file.close();
         savePrefs(prefs, node_lat, node_lon);
       }
+#ifndef PRIVATE_STATUS_REPORTER
       _fs->remove(old);
+#endif
       break;
     }
   }

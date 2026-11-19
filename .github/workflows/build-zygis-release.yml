@@ -1,0 +1,41 @@
+name: Build Žygis release artifacts
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  targets:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: List Žygis build environments
+        id: targets
+        run: echo "matrix=$(python3 scripts/zygis_release.py --list)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: targets
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: ${{ fromJSON(needs.targets.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-build-environment
+      - name: Build and package firmware
+        env:
+          TARGET: ${{ matrix.environment }}
+        run: python3 scripts/zygis_release.py "$TARGET" --output out/release
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.environment }}
+          path: out/release/
+          if-no-files-found: error

@@ -2363,7 +2363,9 @@ public:
         if (_scope_pick_active) {
           // Scope sub-menu: Default first, then the list ("*" first).
           if (res == PopupMenu::SELECTED) {
-            the_mesh.setChannelScope(_ctx_ch_idx, chanctl::scopeFromRow(_ctx_menu.selectedIndex()));
+            if (!chanctl::trackingLocked(_ctx_ch_idx)) {
+              the_mesh.setChannelScope(_ctx_ch_idx, chanctl::scopeFromRow(_ctx_menu.selectedIndex()));
+            }
             the_mesh.savePrefs();
           }
           if (res != PopupMenu::NONE) _scope_pick_active = false;
@@ -2407,6 +2409,7 @@ public:
             _history.setChUnread(ch_idx, 0);
             markReadAlert(cleared);
           } else if (sel == 4) {              // Scope
+            if (chanctl::trackingLocked(ch_idx)) return true;
             const ScopeList& sl = the_mesh.scopeList();
             snprintf(_ctx_scope_def, sizeof(_ctx_scope_def), "Default (%s)", sl.name(sl.default_idx));
             _ctx_menu.begin("Scope", 4);
@@ -2434,7 +2437,7 @@ public:
           } else if (sel == 6) {              // Edit
             ChannelDetails ch;
             if (the_mesh.getChannel(ch_idx, ch)) _ch_view.openEdit(ch_idx, ch.name);
-          } else if (sel == 7) {              // Delete -- confirm first (destructive)
+          } else if (sel == 7 && !chanctl::trackingLocked(ch_idx)) {
             _ctx_menu.beginConfirm("Delete channel?", "Delete");
             _ch_delete_confirm_active = true;
             return true;   // list rebuild below would close the submenu
@@ -2496,7 +2499,8 @@ public:
         { const uint8_t row = chanctl::scope(_task->getNodePrefs(), ch_idx);
           snprintf(_ctx_scope_item, sizeof(_ctx_scope_item), "Scope: %s",
                    row ? the_mesh.scopeList().name(row - 1) : "Default"); }
-        _ctx_menu.begin("Channel options", 6);
+        const bool locked = chanctl::trackingLocked(ch_idx);
+        _ctx_menu.begin(locked ? "Tracking channel" : "Channel options", locked ? 0 : 6);
         _ctx_menu.addItem("Mark all read");
         _ctx_menu.addValueItem(_ctx_notif_item);
         _ctx_menu.addValueItem(_ctx_melody_item);
@@ -2511,10 +2515,12 @@ public:
           _ctx_menu.addValueItem(_ctx_save_item);
         }
 #endif
-        _ctx_menu.addItem(_ctx_scope_item);
+        _ctx_menu.addItem(locked ? "Scope: locked" : _ctx_scope_item);
         _ctx_menu.addItem(_ctx_pin_item);
-        _ctx_menu.addItem("Edit");
-        _ctx_menu.addItem("Delete");
+        if (!locked) {
+          _ctx_menu.addItem("Edit");
+          _ctx_menu.addItem("Delete");
+        }
         _ctx_dirty = false;
         return true;
       }

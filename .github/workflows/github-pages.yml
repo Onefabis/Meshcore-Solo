@@ -1,0 +1,37 @@
+name: "Upstream reference: docs deployment"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  github-pages:
+    if: github.repository == 'meshcore-dev/MeshCore'
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Checkout Repo
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Build
+        run: |
+          pip install mkdocs-material
+          mkdocs build
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4.1.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          cname: docs.meshcore.io
+          publish_dir: ./site
+          publish_branch: 'gh-pages'

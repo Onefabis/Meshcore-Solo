@@ -29,6 +29,12 @@ public:
   // ── Not yet extracted (device controls, prefs cleanup) ──
   virtual void onContactRemoved(const uint8_t* pub_key) {}
   virtual void onChannelRemoved(uint8_t channel_idx) {}
+#ifdef PRIVATE_STATUS_REPORTER
+  virtual void onTrackerAlert(const char*, bool) {}
+#endif
+#ifdef SOLO_GAMES_ENABLED
+  virtual void onGameChannelText(uint8_t, const char*, const char*) {}
+#endif
   virtual void botSetGPS(bool on) {}
   // An SOS began or ended (the UI's own startSos() / stopSos() calls): what only
   // the frontend can rest or raise. May touch the status bar.

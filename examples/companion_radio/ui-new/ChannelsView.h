@@ -104,6 +104,7 @@ public:
     _name[0] = '\0'; _secret_text[0] = '\0'; _hex_mode = false; _sel = 0;
   }
   void openEdit(int idx, const char* existing_name) {
+    if (chanctl::trackingLocked(idx)) return;
     _mode = EDIT; _idx = idx;
     strncpy(_name, existing_name, sizeof(_name) - 1); _name[sizeof(_name) - 1] = '\0';
     _secret_text[0] = '\0'; _hex_mode = false; _sel = 0;

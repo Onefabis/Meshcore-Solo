@@ -579,6 +579,16 @@ struct NodePrefsFields {
   //     channel 0 is all-zero, so emptiness is decided by the kind first.
   static const uint8_t FAVOURITES_COUNT = 6;
   static const uint8_t FAVOURITE_PREFIX_LEN = 6;
+  static const uint8_t FAV_GAME_MENU    = 0;
+  static const uint8_t FAV_GAME_TICTACTOE = 1;
+  static const uint8_t FAV_GAME_TICTACTOE_MESH = 2;
+  static const uint8_t FAV_GAME_SNAKE = 3;
+  static const uint8_t FAV_GAME_CHECKERS = 4;
+  static const uint8_t FAV_GAME_BATTLESHIP = 5;
+  static const uint8_t FAV_GAME_ARTILLERY = 6;
+  static const uint8_t FAV_GAME_HOLDEM = 7;
+  static const uint8_t FAV_GAME_VEYLITH = 8;
+  static const uint8_t FAV_GAME_ARENA_MESH = 9;
   static const uint8_t FAV_KIND_CONTACT = 0;
   static const uint8_t FAV_KIND_CHANNEL = 1;
   static const uint8_t FAV_KIND_MAX     = 1;

@@ -10,6 +10,12 @@ class ArduinoSerialInterface : public BaseSerialInterface {
   uint16_t rx_len;
   Stream* _serial;
   uint8_t rx_buf[MAX_FRAME_SIZE];
+#ifdef PRIVATE_STATUS_REPORTER
+  char text_buf[80] = {};
+  uint8_t text_len = 0;
+  bool text_ready = false, text_overflow = false;
+#endif
+
 
 public:
   ArduinoSerialInterface() { _isEnabled = false; _state = 0; }
@@ -39,4 +45,8 @@ public:
   bool isWriteBusy() const override;
   size_t writeFrame(const uint8_t src[], size_t len) override;
   size_t checkRecvFrame(uint8_t dest[]) override;
+#ifdef PRIVATE_STATUS_REPORTER
+  bool checkRecvText(char* dest, size_t capacity) override;
+  void writeText(const char* text) override;
+#endif
 };

@@ -228,6 +228,25 @@ public:
     return allSuccessful ? len : 0; 
   }
 
+#ifdef PRIVATE_STATUS_REPORTER
+  bool checkRecvText(char* dest, size_t capacity) override {
+    for (int i = 0; i < MAX_INTERFACES; ++i) {
+      if (usable(i) && _interfaces[i].type == InterfaceType::USB) {
+        return _interfaces[i].instance->checkRecvText(dest, capacity);
+      }
+    }
+    return false;
+  }
+
+  void writeText(const char* text) override {
+    for (int i = 0; i < MAX_INTERFACES; ++i) {
+      if (usable(i) && _interfaces[i].type == InterfaceType::USB) {
+        _interfaces[i].instance->writeText(text);
+        return;
+      }
+    }
+  }
+#endif
   size_t checkRecvFrame(uint8_t dest[]) override {
     // don't read when disabled
     if(!_enabled){

@@ -11,7 +11,12 @@
 
 class SensorManager {
 public:
-  double node_lat, node_lon;  // modify these, if you want to affect Advert location
+  double node_lat, node_lon;
+#ifdef PRIVATE_STATUS_REPORTER
+  bool position_valid = false;
+  virtual bool setGPSFromCLI(bool enabled) { return setSettingValue("gps", enabled ? "1" : "0"); }
+#endif
+  // modify these, if you want to affect Advert location
   double node_altitude;       // altitude in meters
 
   SensorManager() { node_lat = 0; node_lon = 0; node_altitude = 0; }

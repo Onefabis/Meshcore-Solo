@@ -13,6 +13,10 @@
 void ArduinoSerialInterface::enable() { 
   _isEnabled = true;
   _state = RECV_STATE_IDLE;
+#ifdef PRIVATE_STATUS_REPORTER
+  text_len = 0;
+  text_ready = text_overflow = false;
+#endif
 }
 void ArduinoSerialInterface::disable() {
   _isEnabled = false;
@@ -83,7 +87,29 @@ size_t ArduinoSerialInterface::writeFrame(const uint8_t src[], size_t len) {
   return streamWriteUntil(*_serial, src, len, deadline);
 }
 
+#ifdef PRIVATE_STATUS_REPORTER
+bool ArduinoSerialInterface::checkRecvText(char* dest, size_t capacity) {
+  if (!text_ready || capacity == 0) return false;
+  size_t n = text_len < capacity - 1 ? text_len : capacity - 1;
+  memcpy(dest, text_buf, n);
+  dest[n] = 0;
+  text_len = 0;
+  text_ready = false;
+  return true;
+}
+
+void ArduinoSerialInterface::writeText(const char* text) {
+  uint32_t deadline = millis() + SERIAL_WRITE_TIMEOUT_MS;
+  streamWriteUntil(*_serial, (const uint8_t*)text, strlen(text), deadline);
+  const uint8_t ending[] = {'\r', '\n'};
+  streamWriteUntil(*_serial, ending, sizeof(ending), deadline);
+}
+#endif
+
 size_t ArduinoSerialInterface::checkRecvFrame(uint8_t dest[]) {
+#ifdef PRIVATE_STATUS_REPORTER
+  if (text_ready) return 0; // Dispatch one line before consuming the next.
+#endif
   while (_serial->available()) {
     int c = _serial->read();
     if (c < 0) break;
@@ -91,8 +117,30 @@ size_t ArduinoSerialInterface::checkRecvFrame(uint8_t dest[]) {
     switch (_state) {
       case RECV_STATE_IDLE:
         if (c == '<') {
+#ifdef PRIVATE_STATUS_REPORTER
+          text_len = 0;
+          text_overflow = false;
+#endif
           _state = RECV_STATE_HDR_FOUND;
         }
+#ifdef PRIVATE_STATUS_REPORTER
+        else if (c == '\r' || c == '\n') {
+          if (text_overflow) {
+            text_len = 0;
+            text_overflow = false;
+            writeText("Error: command too long");
+          } else if (text_len) {
+            text_buf[text_len] = 0;
+            text_ready = true;
+            return 0;
+          }
+        } else if (c == 8 || c == 127) {
+          if (text_len && !text_overflow) --text_len;
+        } else if (c >= 32 && c <= 126 && !text_overflow) {
+          if (text_len < sizeof(text_buf) - 1) text_buf[text_len++] = (char)c;
+          else text_overflow = true; // Reject the whole line, never execute a prefix.
+        }
+#endif
         break;
       case RECV_STATE_HDR_FOUND:
         _frame_len = (uint8_t)c;   // LSB

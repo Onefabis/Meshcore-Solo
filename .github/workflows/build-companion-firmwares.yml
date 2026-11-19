@@ -1,13 +1,10 @@
-name: Build Companion Firmwares
+name: "Manual reference: Build Companion Firmwares"
 
 permissions:
   contents: write
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - 'companion-*'
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true

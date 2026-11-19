@@ -36,4 +36,8 @@ public:
   virtual void setReplyTarget(int target) { }
   virtual size_t writeFrame(const uint8_t src[], size_t len) = 0;
   virtual size_t checkRecvFrame(uint8_t dest[]) = 0;
+#ifdef PRIVATE_STATUS_REPORTER
+  virtual bool checkRecvText(char*, size_t) { return false; }
+  virtual void writeText(const char*) {}
+#endif
 };
